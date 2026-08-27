@@ -66,7 +66,12 @@ type codewordSource struct {
 func interleaveOrder(v qrCodeVersion) []codewordSource {
 	sizes := blockSizes(v)
 
-	order := make([]codewordSource, 0, numCodewords(sizes))
+	capacity := 0
+	for _, size := range sizes {
+		capacity += size.numCodewords
+	}
+
+	order := make([]codewordSource, 0, capacity)
 
 	// Data codewords, then error correction codewords. The two passes differ
 	// only in which codewords of a block they draw from.
@@ -106,13 +111,96 @@ func appendInterleaved(order []codewordSource, sizes []blockSize,
 	}
 }
 
-// numCodewords returns the total number of codewords held by blocks.
-func numCodewords(blocks []blockSize) int {
-	total := 0
+// noCodeword is what codewordAt reports for a module carrying no codeword.
+const noCodeword = -1
 
-	for _, b := range blocks {
-		total += b.numCodewords
+// codewordLayout says which codeword occupies each module of a symbol, and
+// which block each codeword belongs to.
+//
+// Together those two mappings are what let occlusion be judged: a logo covers
+// modules, error correction is spent on codewords, and capacity is held by
+// blocks. Both hops are needed to get from one to the other.
+//
+// A layout depends on the version and recovery level only, not on the content
+// encoded, so one is valid for every symbol of that version and level.
+type codewordLayout struct {
+	version    qrCodeVersion
+	symbolSize int
+
+	// codeword[y*symbolSize+x] is the index into the interleaved codeword
+	// sequence of the codeword occupying the module at (x, y), or noCodeword.
+	codeword []int
+
+	// source[n] is where codeword n of the interleaved sequence came from.
+	source []codewordSource
+
+	// blocks[b] is the shape of block b.
+	blocks []blockSize
+}
+
+// newCodewordLayout builds the layout of a version v symbol.
+func newCodewordLayout(v qrCodeVersion) *codewordLayout {
+	l := &codewordLayout{
+		version:    v,
+		symbolSize: v.symbolSize(),
+		source:     interleaveOrder(v),
+		blocks:     blockSizes(v),
 	}
 
-	return total
+	l.codeword = make([]int, l.symbolSize*l.symbolSize)
+
+	for i := range l.codeword {
+		l.codeword[i] = noCodeword
+	}
+
+	// Bit i of the placed bit stream lands in the module at path[i], and the
+	// stream is the interleaved codewords in order, so bits 8n to 8n+7 are
+	// codeword n. Any bits beyond the last codeword are the version's
+	// remainder bits, which pad the data region out to a whole number of
+	// modules and belong to no codeword.
+	numPlacedBits := 8 * len(l.source)
+
+	for i, p := range dataModulePath(v) {
+		if i >= numPlacedBits {
+			break
+		}
+
+		l.codeword[p.y*l.symbolSize+p.x] = i / 8
+	}
+
+	return l
+}
+
+// codewordAt returns the index of the codeword occupying the module at
+// (x, y), or noCodeword if the module carries none.
+//
+// Two kinds of module carry none: every function pattern module, and the
+// version's remainder bits. The distinction matters to a caller judging
+// occlusion — covering a function pattern is unrecoverable and covering a
+// remainder bit costs nothing — so a caller that needs to tell them apart
+// must ask functionPatternSymbol, not this.
+func (l *codewordLayout) codewordAt(x int, y int) int {
+	return l.codeword[y*l.symbolSize+x]
+}
+
+// numCodewords returns the number of codewords the symbol carries, data and
+// error correction together.
+func (l *codewordLayout) numCodewords() int {
+	return len(l.source)
+}
+
+// blockOf returns the index of the block codeword n belongs to.
+func (l *codewordLayout) blockOf(n int) int {
+	return l.source[n].block
+}
+
+// block returns the shape of block b.
+func (l *codewordLayout) block(b int) blockSize {
+	return l.blocks[b]
+}
+
+// numBlocks returns the number of error correction blocks the symbol is split
+// into.
+func (l *codewordLayout) numBlocks() int {
+	return len(l.blocks)
 }

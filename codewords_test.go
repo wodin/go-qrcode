@@ -188,3 +188,206 @@ func TestInterleaveOrderPlacesDataBeforeErrorCorrection(t *testing.T) {
 		}
 	}
 }
+
+func TestCodewordLayoutGivesEveryCodewordEightModules(t *testing.T) {
+	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
+		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+			v := getQRCodeVersion(level, versionNumber)
+			l := newCodewordLayout(*v)
+			size := v.symbolSize()
+
+			if want := numTotalCodewords(*v); l.numCodewords() != want {
+				t.Fatalf("v=%d level=%d: layout holds %d codewords, want %d",
+					versionNumber, level, l.numCodewords(), want)
+			}
+
+			modules := make([]int, l.numCodewords())
+
+			for y := 0; y < size; y++ {
+				for x := 0; x < size; x++ {
+					n := l.codewordAt(x, y)
+					if n == noCodeword {
+						continue
+					}
+
+					if n < 0 || n >= l.numCodewords() {
+						t.Fatalf("v=%d level=%d: module (%d,%d) holds codeword "+
+							"%d, which does not exist",
+							versionNumber, level, x, y, n)
+					}
+
+					modules[n]++
+				}
+			}
+
+			for n, count := range modules {
+				if count != 8 {
+					t.Fatalf("v=%d level=%d: codeword %d occupies %d modules, want 8",
+						versionNumber, level, n, count)
+				}
+			}
+		}
+	}
+}
+
+// TestCodewordLayoutLeavesFunctionPatternsUnassigned checks the two kinds of
+// module that carry no codeword: function pattern modules, which a logo must
+// never occlude, and the version's remainder bits, which a logo may occlude
+// for free because no codeword depends on them.
+func TestCodewordLayoutLeavesFunctionPatternsUnassigned(t *testing.T) {
+	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
+		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+			v := getQRCodeVersion(level, versionNumber)
+			l := newCodewordLayout(*v)
+			fps := functionPatternSymbol(*v)
+			size := v.symbolSize()
+
+			unassignedDataModules := 0
+
+			for y := 0; y < size; y++ {
+				for x := 0; x < size; x++ {
+					assigned := l.codewordAt(x, y) != noCodeword
+
+					if !fps.empty(x, y) {
+						if assigned {
+							t.Fatalf("v=%d level=%d: function pattern module "+
+								"(%d,%d) holds codeword %d",
+								versionNumber, level, x, y, l.codewordAt(x, y))
+						}
+
+						continue
+					}
+
+					if !assigned {
+						unassignedDataModules++
+					}
+				}
+			}
+
+			if unassignedDataModules != v.numRemainderBits {
+				t.Errorf("v=%d level=%d: %d data region modules hold no "+
+					"codeword, want %d (the version's remainder bits)",
+					versionNumber, level, unassignedDataModules,
+					v.numRemainderBits)
+			}
+		}
+	}
+}
+
+func TestCodewordLayoutBlocksMatchVersionTable(t *testing.T) {
+	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
+		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+			v := getQRCodeVersion(level, versionNumber)
+			l := newCodewordLayout(*v)
+
+			if l.numBlocks() != v.numBlocks() {
+				t.Fatalf("v=%d level=%d: layout holds %d blocks, want %d",
+					versionNumber, level, l.numBlocks(), v.numBlocks())
+			}
+
+			codewordsInBlock := make([]int, v.numBlocks())
+
+			for n := 0; n < l.numCodewords(); n++ {
+				b := l.blockOf(n)
+
+				if b < 0 || b >= len(codewordsInBlock) {
+					t.Fatalf("v=%d level=%d: codeword %d belongs to block %d, "+
+						"which does not exist", versionNumber, level, n, b)
+				}
+
+				codewordsInBlock[b]++
+			}
+
+			for b, count := range codewordsInBlock {
+				if want := l.block(b).numCodewords; count != want {
+					t.Errorf("v=%d level=%d: block %d owns %d codewords, want %d",
+						versionNumber, level, b, count, want)
+				}
+			}
+		}
+	}
+}
+
+// TestCodewordLayoutMatchesISOWorkedExample reads the codewords back out of a
+// built symbol using the layout, and checks them against the worked example
+// of ISO/IEC 18004:2006 Annex I: the content "01234567" at version 1,
+// recovery level Medium.
+//
+// This is the one place in the feature where an external source says what the
+// answer is. It pins the layout's grouping of modules into codewords, the bit
+// order within a codeword, and the interleave — a mistake in any of them
+// yields different bytes. It does not pin the geometry of the placement path
+// itself, since the encoder writes and the layout reads through the same
+// path; TestRegularSymbolPlacementGolden and the zbarimg decode tests cover
+// that.
+func TestCodewordLayoutMatchesISOWorkedExample(t *testing.T) {
+	// ISO/IEC 18004:2006 Annex I. Sixteen data codewords: the encoded content,
+	// a terminator, and the alternating pad codewords 0xec 0x11 filling the
+	// remaining capacity. Then ten error correction codewords.
+	want := []byte{
+		0x10, 0x20, 0x0c, 0x56, 0x61, 0x80, 0xec, 0x11,
+		0xec, 0x11, 0xec, 0x11, 0xec, 0x11, 0xec, 0x11,
+		0xa5, 0x24, 0xd4, 0xc1, 0xed, 0x36, 0xc7, 0x87,
+		0x2c, 0x55,
+	}
+
+	q, err := New("01234567", Medium)
+	if err != nil {
+		t.Fatalf("New: %s", err)
+	}
+
+	if q.VersionNumber != 1 {
+		t.Fatalf("version = %d, want the worked example's version 1",
+			q.VersionNumber)
+	}
+
+	// The steps New leaves to encode: complete the bit stream, then split,
+	// error correct and interleave it.
+	q.addTerminatorBits(q.version.numTerminatorBitsRequired(q.data.Len()))
+	q.addPadding()
+
+	encoded := q.encodeBlocks()
+	l := newCodewordLayout(q.version)
+
+	// The mask is a property of the module's position, not of the codeword,
+	// so reading the codewords back must give the same answer under every one.
+	for mask := 0; mask <= 7; mask++ {
+		s, err := buildRegularSymbol(q.version, mask, encoded, false)
+		if err != nil {
+			t.Fatalf("buildRegularSymbol(mask=%d): %s", mask, err)
+		}
+
+		got := readCodewords(s, mask, l)
+
+		for n, b := range want {
+			if got[n] != b {
+				t.Fatalf("mask=%d: codeword %d = %#02x, want %#02x "+
+					"(got %#02x, want %#02x)",
+					mask, n, got[n], b, got, want)
+			}
+		}
+	}
+}
+
+// readCodewords reads s's codewords back out through l, undoing mask.
+//
+// Each codeword is assembled from the eight modules l assigns to it, taken in
+// placement path order, most significant bit first.
+func readCodewords(s *symbol, mask int, l *codewordLayout) []byte {
+	codewords := make([]byte, l.numCodewords())
+
+	for _, p := range dataModulePath(l.version) {
+		n := l.codewordAt(p.x, p.y)
+		if n == noCodeword {
+			continue
+		}
+
+		codewords[n] <<= 1
+
+		if s.get(p.x, p.y) != dataMask(mask, p.x, p.y) {
+			codewords[n] |= 1
+		}
+	}
+
+	return codewords
+}

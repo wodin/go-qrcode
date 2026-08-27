@@ -56,7 +56,15 @@ and error correction codewords, and are the only modules a logo may occlude.
 Eight consecutive bits of the encoded stream, laid into eight modules of the
 data region. The unit error correction actually operates on: a codeword with
 one wrong module and a codeword with eight wrong modules cost the decoder the
-same.
+same. `codewordLayout` says which codeword occupies a given module, and which
+block that codeword belongs to.
+
+**Remainder bits**:
+The handful of data region modules left over past the last codeword, because
+a version's data region is not always a whole number of codewords wide.
+Always zero, ignored by decoders, and free for a logo to occlude: no codeword
+depends on them. Counted by `numRemainderBits`, and the reason a data region
+module can carry no codeword without being a function pattern.
 
 **Placement path**:
 The order in which the encoded bit stream is laid into the data region:
@@ -78,8 +86,10 @@ mask pattern reference)
 **Block**:
 A group of codewords with its own error correction codewords, correctable
 independently of the other blocks. Codewords are interleaved across blocks
-before being laid into the symbol, which is why contiguous damage spreads
-evenly across blocks rather than destroying one.
+before being laid into the symbol — blocks visited round robin, all data
+codewords before any error correction codewords — which is why contiguous
+damage spreads evenly across blocks rather than destroying one.
+`interleaveOrder` returns that order, and is the only statement of it.
 
 **Recovery level**:
 `Low`, `Medium`, `High`, `Highest` — how much of each block is error
