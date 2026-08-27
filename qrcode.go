@@ -326,7 +326,7 @@ func (q *QRCode) Image(size int) image.Image {
 	bitmap := q.symbol.bitmap()
 
 	// Map each image pixel to the nearest QR code module.
-	scale := newModuleScale(size, realSize)
+	scale := newModuleScale(size, realSize, q.symbol.quietZoneSize)
 	for y := 0; y < size; y++ {
 		y2 := scale.moduleAt(y)
 		for x := 0; x < size; x++ {

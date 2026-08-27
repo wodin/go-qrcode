@@ -80,9 +80,9 @@ func rgbaAt(img image.Image, x int, y int) color.RGBA {
 	return c.(color.RGBA)
 }
 
-// withLogo returns a QR Code of the given version and recovery level carrying
-// logo, failing the test if the logo is refused.
-func withLogo(t *testing.T, versionNumber int, level RecoveryLevel,
+// qrCodeWithLogo returns a QR Code of the given version and recovery level
+// carrying logo, failing the test if the logo is refused.
+func qrCodeWithLogo(t *testing.T, versionNumber int, level RecoveryLevel,
 	logo image.Image, options LogoOptions) *QRCode {
 
 	t.Helper()
@@ -98,7 +98,7 @@ func withLogo(t *testing.T, versionNumber int, level RecoveryLevel,
 
 func TestImageWithALogoIsFullColour(t *testing.T) {
 	red := color.RGBA{R: 255, A: 255}
-	q := withLogo(t, 10, Highest, solidLogo(red, 64, 64), DefaultLogoOptions())
+	q := qrCodeWithLogo(t, 10, Highest, solidLogo(red, 64, 64), DefaultLogoOptions())
 
 	img := q.Image(-8)
 
@@ -159,7 +159,7 @@ func TestLogoIsCentredInsideARingOfBackground(t *testing.T) {
 
 	red := color.RGBA{R: 255, A: 255}
 	options := DefaultLogoOptions()
-	q := withLogo(t, 10, Highest, solidLogo(red, 64, 64), options)
+	q := qrCodeWithLogo(t, 10, Highest, solidLogo(red, 64, 64), options)
 
 	img := q.Image(-pixelsPerModule)
 	logo := extentOf(img, red)
@@ -196,7 +196,7 @@ func TestLogoLeavesTheRestOfTheSymbolAlone(t *testing.T) {
 
 	plain := forcedVersion(t, 10, Highest).Image(-pixelsPerModule)
 
-	q := withLogo(t, 10, Highest, solidLogo(color.RGBA{R: 255, A: 255}, 64, 64),
+	q := qrCodeWithLogo(t, 10, Highest, solidLogo(color.RGBA{R: 255, A: 255}, 64, 64),
 		DefaultLogoOptions())
 	img := q.Image(-pixelsPerModule)
 
@@ -229,7 +229,7 @@ func TestNonSquareLogoKeepsItsAspectRatio(t *testing.T) {
 	)
 
 	red := color.RGBA{R: 255, A: 255}
-	q := withLogo(t, 10, Highest, solidLogo(red, logoWidth, logoHeight),
+	q := qrCodeWithLogo(t, 10, Highest, solidLogo(red, logoWidth, logoHeight),
 		DefaultLogoOptions())
 
 	img := q.Image(-pixelsPerModule)
@@ -251,14 +251,21 @@ func TestNonSquareLogoKeepsItsAspectRatio(t *testing.T) {
 	assertCentred(t, logo, img.Bounds().Dx())
 }
 
-// halfTransparentLogo returns a width by height image whose left half is
-// opaque c and whose right half is fully transparent.
-func halfTransparentLogo(c color.NRGBA, width int, height int) image.Image {
+// splitLogo returns a width by height image whose left half is left and whose
+// right half is right, so that a test can put an opaque colour beside a
+// transparent one.
+func splitLogo(left color.NRGBA, right color.NRGBA, width int,
+	height int) image.Image {
+
 	logo := image.NewNRGBA(image.Rect(0, 0, width, height))
 
 	for y := 0; y < height; y++ {
-		for x := 0; x < width/2; x++ {
-			logo.Set(x, y, c)
+		for x := 0; x < width; x++ {
+			if x < width/2 {
+				logo.Set(x, y, left)
+			} else {
+				logo.Set(x, y, right)
+			}
 		}
 	}
 
@@ -271,7 +278,7 @@ func TestTransparentLogoCompositesOverTheBackground(t *testing.T) {
 	blue := color.NRGBA{B: 255, A: 255}
 	cream := color.RGBA{R: 255, G: 240, B: 200, A: 255}
 
-	q := withLogo(t, 10, Highest, halfTransparentLogo(blue, 64, 64),
+	q := qrCodeWithLogo(t, 10, Highest, splitLogo(blue, color.NRGBA{}, 64, 64),
 		DefaultLogoOptions())
 	q.BackgroundColor = cream
 
@@ -300,7 +307,7 @@ func TestInvertedColoursClearTheKnockoutToTheInvertedBackground(t *testing.T) {
 	red := color.RGBA{R: 255, A: 255}
 	options := DefaultLogoOptions()
 
-	q := withLogo(t, 10, Highest, solidLogo(red, 64, 64), options)
+	q := qrCodeWithLogo(t, 10, Highest, solidLogo(red, 64, 64), options)
 	q.BackgroundColor = color.Black
 	q.ForegroundColor = color.White
 
@@ -339,7 +346,7 @@ func TestLogoIsDrawnAtTheRequestedScale(t *testing.T) {
 		options := DefaultLogoOptions()
 		options.Scale = scale
 
-		q := withLogo(t, versionNumber, Highest, solidLogo(red, 64, 64), options)
+		q := qrCodeWithLogo(t, versionNumber, Highest, solidLogo(red, 64, 64), options)
 
 		img := q.Image(-pixelsPerModule)
 		logo := extentOf(img, red)
@@ -365,7 +372,7 @@ func TestKnockoutReplacesTheModulesBeneathIt(t *testing.T) {
 
 	// A wholly transparent logo, so that the centre shows the cleared
 	// knockout and nothing else.
-	q := withLogo(t, 10, Highest, image.NewNRGBA(image.Rect(0, 0, 64, 64)),
+	q := qrCodeWithLogo(t, 10, Highest, image.NewNRGBA(image.Rect(0, 0, 64, 64)),
 		DefaultLogoOptions())
 	q.BackgroundColor = translucent
 
@@ -375,5 +382,203 @@ func TestKnockoutReplacesTheModulesBeneathIt(t *testing.T) {
 	if got := rgbaAt(img, centre, centre); got != translucent {
 		t.Errorf("the centre of the knockout is %+v, want the background %+v",
 			got, translucent)
+	}
+}
+
+// checkerboardLogo returns a width by height image of alternating single
+// pixel black and white squares — the highest frequency detail an image of
+// that size can hold, and so the input that separates averaging from
+// sampling most sharply.
+func checkerboardLogo(width int, height int) image.Image {
+	logo := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			if (x+y)%2 == 0 {
+				logo.Set(x, y, color.White)
+			} else {
+				logo.Set(x, y, color.Black)
+			}
+		}
+	}
+
+	return logo
+}
+
+// midTones counts the pixels of img that are neither of the two colours a QR
+// Code is drawn in. A symbol carrying no logo has none at all.
+func midTones(img image.Image) int {
+	count := 0
+
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			if r := rgbaAt(img, x, y).R; r != 0 && r != 255 {
+				count++
+			}
+		}
+	}
+
+	return count
+}
+
+func TestScalingALogoDownAveragesRatherThanSamples(t *testing.T) {
+	const pixelsPerModule = 2
+
+	q := qrCodeWithLogo(t, 10, Highest, checkerboardLogo(64, 64),
+		DefaultLogoOptions())
+
+	img := q.Image(-pixelsPerModule)
+
+	// Sampling a black and white checkerboard can only ever return black or
+	// white. Every pixel of the seat is a tone between the two, so every
+	// pixel of it covers some of each.
+	centre := img.Bounds().Dx() / 2
+
+	for y := centre - 4; y < centre+4; y++ {
+		for x := centre - 4; x < centre+4; x++ {
+			got := rgbaAt(img, x, y)
+
+			if got.R == 0 || got.R == 255 {
+				t.Fatalf("(%d,%d) is %+v, want a tone between black and white",
+					x, y, got)
+			}
+
+			if got.R != got.G || got.G != got.B {
+				t.Fatalf("(%d,%d) is %+v, want a grey", x, y, got)
+			}
+		}
+	}
+}
+
+func TestScalingALogoDownKeepsAThinStroke(t *testing.T) {
+	const (
+		pixelsPerModule = 2
+		logoSize        = 64
+	)
+
+	// A single dark column on white. At this reduction a sampler reads
+	// roughly every third source column, and column 44 is not one of them —
+	// it would render a QR Code with no trace of the stroke at all.
+	logo := image.NewRGBA(image.Rect(0, 0, logoSize, logoSize))
+	for y := 0; y < logoSize; y++ {
+		for x := 0; x < logoSize; x++ {
+			logo.Set(x, y, color.White)
+		}
+
+		logo.Set(44, y, color.Black)
+	}
+
+	q := qrCodeWithLogo(t, 10, Highest, logo, DefaultLogoOptions())
+
+	if got := midTones(q.Image(-pixelsPerModule)); got == 0 {
+		t.Error("the rendered code shows no trace of the logo's stroke")
+	}
+}
+
+func TestScalingALogoDownDoesNotBleedInvisibleColour(t *testing.T) {
+	const pixelsPerModule = 2
+
+	// Opaque red beside transparent blue. Reducing the logo blends the two
+	// along the seam; the blue is invisible and must stay so, which it does
+	// only if the blend weights each colour by its coverage.
+	logo := splitLogo(color.NRGBA{R: 255, A: 255}, color.NRGBA{B: 255}, 64, 64)
+
+	q := qrCodeWithLogo(t, 10, Highest, logo, DefaultLogoOptions())
+
+	// Neither the modules, the background nor the logo's visible half
+	// carries any blue, so any blue at all came from the transparent half.
+	q.BackgroundColor = color.RGBA{R: 255, G: 255, A: 255}
+	q.ForegroundColor = color.Black
+
+	img := q.Image(-pixelsPerModule)
+
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			if got := rgbaAt(img, x, y); got.B != 0 {
+				t.Fatalf("(%d,%d) is %+v, want no blue: the transparent half "+
+					"of the logo bled into the visible one", x, y, got)
+			}
+		}
+	}
+}
+
+// knockoutExtent returns the bounding box of the pixels that a logo changed,
+// found by rendering the same QR Code without one. That is the knockout, and
+// it is where every claim about the seated logo has to be tested.
+func knockoutExtent(t *testing.T, with image.Image, without image.Image) image.Rectangle {
+	t.Helper()
+
+	extent := image.Rectangle{}
+
+	for y := 0; y < with.Bounds().Dy(); y++ {
+		for x := 0; x < with.Bounds().Dx(); x++ {
+			if rgbaAt(with, x, y) == rgbaAt(without, x, y) {
+				continue
+			}
+
+			pixel := image.Rect(x, y, x+1, y+1)
+
+			if extent.Empty() {
+				extent = pixel
+			} else {
+				extent = extent.Union(pixel)
+			}
+		}
+	}
+
+	if extent.Empty() {
+		t.Fatal("the attached logo changed nothing")
+	}
+
+	return extent
+}
+
+// TestARenderedQRCodeSurvivesAsALogo is the adversarial case for the
+// downscaler: black and white detail at the finest pitch an image can carry,
+// reduced several times over.
+//
+// Two ways of getting it wrong have opposite symptoms, so both are asserted.
+// A filter that samples keeps the extremes and drops whatever it lands
+// between, leaving no tone in the middle; one that averages over too wide a
+// span washes the mark to flat grey, leaving no extremes. A mark that
+// survives has both.
+func TestARenderedQRCodeSurvivesAsALogo(t *testing.T) {
+	const pixelsPerModule = 4
+
+	inner, err := New("https://example.org", Highest)
+	if err != nil {
+		t.Fatalf("building the QR Code to use as a logo: %s", err)
+	}
+
+	q := qrCodeWithLogo(t, 10, Highest, inner.Image(-4), DefaultLogoOptions())
+
+	img := q.Image(-pixelsPerModule)
+	plain := forcedVersion(t, 10, Highest).Image(-pixelsPerModule)
+
+	knockout := knockoutExtent(t, img, plain)
+
+	darkest, lightest, midTones := 255, 0, 0
+
+	for y := knockout.Min.Y; y < knockout.Max.Y; y++ {
+		for x := knockout.Min.X; x < knockout.Max.X; x++ {
+			tone := int(rgbaAt(img, x, y).R)
+
+			darkest = min(darkest, tone)
+			lightest = max(lightest, tone)
+
+			if tone != 0 && tone != 255 {
+				midTones++
+			}
+		}
+	}
+
+	if darkest > 64 || lightest < 192 {
+		t.Errorf("the reduced mark spans tones %d..%d, want it to keep its "+
+			"contrast rather than wash out to grey", darkest, lightest)
+	}
+
+	if midTones == 0 {
+		t.Error("the reduced mark has no tone between black and white, so " +
+			"detail was sampled away rather than averaged in")
 	}
 }

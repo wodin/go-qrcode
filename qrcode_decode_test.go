@@ -181,46 +181,101 @@ func TestDecodeFuzz(t *testing.T) {
 // is measured in codewords; this is the only test that measures it in
 // scanners.
 //
-// The logo is solid black, which is the worst case: every module under the
-// knockout is wrong, and none of them is accidentally right.
+// The assertion runs one way only. Beyond the limit a code will usually still
+// decode in a clean synthetic test — the half-capacity budget is deliberately
+// conservative, and what the withheld half pays for is print and optics, not
+// zbarimg — so asserting that an oversized logo fails would fail for the right
+// reason while looking like a defect.
+//
+// The versions are chosen so that the centre of the symbol lands on an
+// alignment pattern for some and not for others, which is the geometry that
+// decides whether a centred knockout has to swallow one (ADR-0002).
+//
+// The logo is solid black, which is the worst case for damage: every module
+// under the knockout is wrong and none of them is accidentally right. The
+// adversarial case for the downscaler — a rendered QR Code used as the logo —
+// is asserted where it belongs, at the rendering seam, because a scannable
+// mark inside a scannable symbol tests a decoder's ability to tell two codes
+// apart rather than anything this package decides.
 func TestDecodeWithLogo(t *testing.T) {
 	if !*testDecode {
 		t.Skip("Decode tests not enabled")
 	}
 
+	onAnAlignmentPattern := []int{7, 10, 21, 35}
+	clearOfOne := []int{1, 5, 20, 40}
+
+	assertCentresAreOnAlignmentPatterns(t, onAnAlignmentPattern, true)
+	assertCentresAreOnAlignmentPatterns(t, clearOfOne, false)
+
 	logo := solidLogo(color.Black, 64, 64)
 
-	contents := []string{
-		"A",
-		"https://example.org/a/moderately/long/path",
-		strings.Repeat("0123456789", 60),
+	for _, versionNumber := range append(onAnAlignmentPattern, clearOfOne...) {
+		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+			decodeWithLargestLogo(t, logo, versionNumber, level)
+		}
+	}
+}
+
+// decodeWithLargestLogo attaches logo to a symbol of the given version and
+// recovery level at the largest scale the package will accept, and reads the
+// result back through zbarimg.
+func decodeWithLargestLogo(t *testing.T, logo image.Image, versionNumber int,
+	level RecoveryLevel) {
+
+	t.Helper()
+
+	// A single digit fits every version at every level, so what the logo may
+	// cover is decided by the version and level alone.
+	q, err := NewWithForcedVersion("1", versionNumber, level)
+	if err != nil {
+		t.Fatalf("NewWithForcedVersion(v%d, level %d): %s",
+			versionNumber, level, err)
 	}
 
-	for _, content := range contents {
-		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
-			q, err := New(content, level)
-			if err != nil {
-				t.Fatalf("New(level %d): %s", level, err)
-			}
+	scale := largestAcceptedScale(t, q, logo)
+	if scale == 0 {
+		return
+	}
 
-			scale := largestAcceptedScale(t, q, logo)
-			if scale == 0 {
-				continue
-			}
+	options := DefaultLogoOptions()
+	options.Scale = scale
 
-			options := DefaultLogoOptions()
-			options.Scale = scale
+	if err := q.SetLogo(logo, options); err != nil {
+		t.Errorf("v%d level %d: the largest accepted scale %v was refused: %s",
+			versionNumber, level, scale, err)
+		return
+	}
 
-			if err := q.SetLogo(logo, options); err != nil {
-				t.Errorf("v%d level %d: the largest accepted scale %v was "+
-					"refused: %s", q.VersionNumber, level, scale, err)
-				continue
-			}
+	if err := zbarimgCheck(q); err != nil {
+		t.Errorf("v%d level %d at scale %v: %s",
+			versionNumber, level, scale, err)
+	}
+}
 
-			if err := zbarimgCheck(q); err != nil {
-				t.Errorf("v%d level %d with a logo of scale %v: %s",
-					q.VersionNumber, level, scale, err)
+// assertCentresAreOnAlignmentPatterns fails the test unless every one of
+// versionNumbers does — or does not — put an alignment pattern's centre on
+// the centre module of the symbol, so that the matrix cannot quietly lose the
+// distinction it was chosen to cover.
+func assertCentresAreOnAlignmentPatterns(t *testing.T, versionNumbers []int,
+	want bool) {
+
+	t.Helper()
+
+	for _, versionNumber := range versionNumbers {
+		// A symbol is 4*version + 17 modules wide (CONTEXT.md).
+		centre := (4*versionNumber + 17 - 1) / 2
+
+		on := false
+		for _, c := range alignmentPatternCenter[versionNumber] {
+			if c == centre {
+				on = true
 			}
+		}
+
+		if on != want {
+			t.Fatalf("v%d has its centre on an alignment pattern: %t, want %t",
+				versionNumber, on, want)
 		}
 	}
 }
