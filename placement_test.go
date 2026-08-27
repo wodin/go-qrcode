@@ -125,3 +125,16 @@ func TestDataModulePathMatchesEncoderPlacement(t *testing.T) {
 		}
 	}
 }
+
+// BenchmarkDataModulePath measures the walk on its own. encode() calls it
+// once per mask, eight times per encode, though it depends only on the
+// version — see issue #12.
+func BenchmarkDataModulePath(b *testing.B) {
+	v := getQRCodeVersion(Low, 40)
+
+	b.ReportAllocs()
+
+	for n := 0; n < b.N; n++ {
+		dataModulePath(*v)
+	}
+}
