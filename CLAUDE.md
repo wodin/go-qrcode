@@ -14,9 +14,9 @@ Run the tests:
 go test ./...
 ```
 
-The tests write PNGs into the working tree and do not reliably clean up after
-themselves, so `.gitignore` carries a blanket `*.png`. Don't narrow that rule —
-no PNG in this repo is meant to be tracked.
+`.gitignore` carries a blanket `*.png`. Don't narrow that rule — no PNG in this
+repo is meant to be tracked, and the decode tests deliberately dump a PNG of the
+failing symbol when a round-trip mismatch occurs (`qrcode_decode_test.go`).
 
 Cross-compile the CLI for Windows:
 

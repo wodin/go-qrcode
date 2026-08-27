@@ -10,7 +10,7 @@ package qrcode
 import (
 	"fmt"
 	"image/color"
-	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -23,11 +23,9 @@ func TestExampleEncode(t *testing.T) {
 }
 
 func TestExampleWriteFile(t *testing.T) {
-	filename := "example.png"
+	filename := filepath.Join(t.TempDir(), "example.png")
 	if err := WriteFile("https://example.org", Medium, 256, filename); err != nil {
-		if err = os.Remove(filename); err != nil {
-			t.Errorf("Error: %s", err.Error())
-		}
+		t.Errorf("WriteFile: %s", err.Error())
 	}
 }
 
@@ -45,7 +43,7 @@ func TestExampleEncodeWithColourAndWithoutBorder(t *testing.T) {
 	q.ForegroundColor = color.RGBA{R: 0x33, G: 0x33, B: 0x66, A: 0xff}
 	q.BackgroundColor = color.RGBA{R: 0xef, G: 0xef, B: 0xef, A: 0xff}
 
-	err = q.WriteFile(256, "example2.png")
+	err = q.WriteFile(256, filepath.Join(t.TempDir(), "example2.png"))
 	if err != nil {
 		t.Errorf("Error: %s", err)
 		return
