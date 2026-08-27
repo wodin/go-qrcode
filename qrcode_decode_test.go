@@ -5,8 +5,11 @@ package qrcode
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"image"
+	"image/color"
 	"math/rand"
 	"os/exec"
 	"strings"
@@ -170,6 +173,81 @@ func TestDecodeFuzz(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestDecodeWithLogo puts the fit check in front of a real decoder: a logo
+// the package accepts, at the largest scale it says it will accept, must
+// leave a symbol that still reads back. Everything else about the guarantee
+// is measured in codewords; this is the only test that measures it in
+// scanners.
+//
+// The logo is solid black, which is the worst case: every module under the
+// knockout is wrong, and none of them is accidentally right.
+func TestDecodeWithLogo(t *testing.T) {
+	if !*testDecode {
+		t.Skip("Decode tests not enabled")
+	}
+
+	logo := solidLogo(color.Black, 64, 64)
+
+	contents := []string{
+		"A",
+		"https://example.org/a/moderately/long/path",
+		strings.Repeat("0123456789", 60),
+	}
+
+	for _, content := range contents {
+		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+			q, err := New(content, level)
+			if err != nil {
+				t.Fatalf("New(level %d): %s", level, err)
+			}
+
+			scale := largestAcceptedScale(t, q, logo)
+			if scale == 0 {
+				continue
+			}
+
+			options := DefaultLogoOptions()
+			options.Scale = scale
+
+			if err := q.SetLogo(logo, options); err != nil {
+				t.Errorf("v%d level %d: the largest accepted scale %v was "+
+					"refused: %s", q.VersionNumber, level, scale, err)
+				continue
+			}
+
+			if err := zbarimgCheck(q); err != nil {
+				t.Errorf("v%d level %d with a logo of scale %v: %s",
+					q.VersionNumber, level, scale, err)
+			}
+		}
+	}
+}
+
+// largestAcceptedScale asks q for the largest logo it would accept, by
+// offering one far too large and reading the answer off the refusal.
+func largestAcceptedScale(t *testing.T, q *QRCode, logo image.Image) float64 {
+	t.Helper()
+
+	options := DefaultLogoOptions()
+	options.Scale = 1
+
+	err := q.SetLogo(logo, options)
+
+	var tooLarge *LogoTooLargeError
+	var occludes *LogoOccludesFunctionPatternError
+
+	switch {
+	case errors.As(err, &tooLarge):
+		return tooLarge.MaxScale
+	case errors.As(err, &occludes):
+		return occludes.MaxScale
+	}
+
+	t.Fatalf("a logo covering the whole symbol was not refused: %v", err)
+
+	return 0
 }
 
 func zbarimgCheck(q *QRCode) error {

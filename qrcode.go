@@ -289,6 +289,13 @@ func (q *QRCode) Bitmap() [][]bool {
 // returned is the minimum size required for the QR Code. Choose a larger
 // negative number to increase the scale of the image. e.g. a size of -5 causes
 // each module (QR Code "pixel") to be 5px in size.
+//
+// A logo attached by SetLogo is composited into the centre automatically. The
+// knockout it sits in — the logo plus its margin, snapped out to whole
+// modules — is cleared to BackgroundColor, and the logo is scaled to
+// LogoOptions.Scale of the symbol's width, keeping its aspect ratio, and
+// drawn over that. An image carrying a logo is full colour; one carrying none
+// is the two colour paletted image it has always been.
 func (q *QRCode) Image(size int) image.Image {
 	// Build QR code.
 	q.encode()
@@ -319,11 +326,11 @@ func (q *QRCode) Image(size int) image.Image {
 	bitmap := q.symbol.bitmap()
 
 	// Map each image pixel to the nearest QR code module.
-	modulesPerPixel := float64(realSize) / float64(size)
+	scale := newModuleScale(size, realSize)
 	for y := 0; y < size; y++ {
-		y2 := int(float64(y) * modulesPerPixel)
+		y2 := scale.moduleAt(y)
 		for x := 0; x < size; x++ {
-			x2 := int(float64(x) * modulesPerPixel)
+			x2 := scale.moduleAt(x)
 
 			v := bitmap[y2][x2]
 
@@ -334,7 +341,11 @@ func (q *QRCode) Image(size int) image.Image {
 		}
 	}
 
-	return img
+	if q.logo == nil {
+		return img
+	}
+
+	return q.withLogo(img, scale)
 }
 
 // PNG returns the QR Code as a PNG image.
