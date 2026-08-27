@@ -485,6 +485,15 @@ func max(a int, b int) int {
 	return b
 }
 
+// min returns the minimum of a and b.
+func min(a int, b int) int {
+	if a < b {
+		return a
+	}
+
+	return b
+}
+
 // addPadding pads the encoded data upto the full length required.
 func (q *QRCode) addPadding() {
 	numDataBits := q.version.numDataBits()
