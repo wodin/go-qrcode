@@ -443,20 +443,20 @@ func (q *QRCode) addTerminatorBits(numTerminatorBits int) {
 //
 // The QR Code's final data sequence is returned.
 func (q *QRCode) encodeBlocks() *bitset.Bitset {
-	sizes := blockSizes(q.version)
+	shapes := blockShapes(q.version)
 
 	// Split into blocks, applying error correction to each. A block's bitset
 	// holds its data codewords followed by its error correction codewords, so
 	// a codewordSource's codeword index addresses either kind.
-	block := make([]*bitset.Bitset, len(sizes))
+	block := make([]*bitset.Bitset, len(shapes))
 
 	start := 0
 
-	for i, size := range sizes {
-		end := start + size.numDataCodewords*8
+	for i, shape := range shapes {
+		end := start + shape.numDataCodewords*8
 
 		block[i] = reedsolomon.Encode(q.data.Substr(start, end),
-			size.numErrorCodewords())
+			shape.numErrorCodewords())
 
 		start = end
 	}

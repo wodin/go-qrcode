@@ -250,15 +250,15 @@ func (m *regularSymbol) addVersionInfo() {
 	}
 }
 
-// dataMask returns the value data mask pattern mask contributes to the module
-// at (x, y). The encoded bit is exclusive-ORed with it before placement
+// dataMask returns the value data mask pattern maskPattern contributes to the
+// module at (x, y). The encoded bit is exclusive-ORed with it before placement
 // (ISO/IEC 18004:2006 8.8.1).
 //
-// A free function rather than a method because the mask is a property of a
+// A free function rather than a method because the value depends on the
 // module's position and the chosen pattern alone: reading a symbol's data
 // back needs it without a regularSymbol in hand.
-func dataMask(mask int, x int, y int) bool {
-	switch mask {
+func dataMask(maskPattern int, x int, y int) bool {
+	switch maskPattern {
 	case 0:
 		return (y+x)%2 == 0
 	case 1:
@@ -277,7 +277,7 @@ func dataMask(mask int, x int, y int) bool {
 		return ((y+x)%2+((y*x)%3))%2 == 0
 	}
 
-	log.Panicf("bug: mask is %d (expected 0-7)", mask)
+	log.Panicf("bug: mask pattern is %d (expected 0-7)", maskPattern)
 
 	return false
 }

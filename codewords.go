@@ -3,14 +3,18 @@
 
 package qrcode
 
-// blockSize is the shape of a single error correction block: how many
+import (
+	"log"
+)
+
+// blockShape is the shape of a single error correction block: how many
 // codewords it holds, and how many of those carry data rather than error
 // correction.
 //
 // Distinct from the version table's block, which describes a whole group of
 // identically sized blocks at once. A version has one table row per group and
-// one blockSize per block.
-type blockSize struct {
+// one blockShape per block.
+type blockShape struct {
 	numCodewords     int
 	numDataCodewords int
 }
@@ -18,18 +22,18 @@ type blockSize struct {
 // numErrorCodewords returns the number of error correction codewords in the
 // block. Half of them is the block's correction capacity: the number of
 // damaged codewords it can recover at unknown positions.
-func (b blockSize) numErrorCodewords() int {
+func (b blockShape) numErrorCodewords() int {
 	return b.numCodewords - b.numDataCodewords
 }
 
-// blockSizes expands v's grouped block table into one entry per block, in the
+// blockShapes expands v's grouped block table into one entry per block, in the
 // order the encoder splits the data between them.
-func blockSizes(v qrCodeVersion) []blockSize {
-	sizes := make([]blockSize, 0, v.numBlocks())
+func blockShapes(v qrCodeVersion) []blockShape {
+	sizes := make([]blockShape, 0, v.numBlocks())
 
 	for _, group := range v.block {
 		for i := 0; i < group.numBlocks; i++ {
-			sizes = append(sizes, blockSize{
+			sizes = append(sizes, blockShape{
 				numCodewords:     group.numCodewords,
 				numDataCodewords: group.numDataCodewords,
 			})
@@ -42,7 +46,7 @@ func blockSizes(v qrCodeVersion) []blockSize {
 // codewordSource locates one codeword of a symbol's interleaved codeword
 // sequence in the blocks it was interleaved from.
 type codewordSource struct {
-	// Index of the block the codeword belongs to, into blockSizes.
+	// Index of the block the codeword belongs to, into blockShapes.
 	block int
 
 	// Index of the codeword within that block: data codewords first, then
@@ -64,38 +68,38 @@ type codewordSource struct {
 // assembles the sequence with it and codewordLayout reads the sequence back
 // with it, so the two cannot drift apart.
 func interleaveOrder(v qrCodeVersion) []codewordSource {
-	sizes := blockSizes(v)
+	shapes := blockShapes(v)
 
 	capacity := 0
-	for _, size := range sizes {
-		capacity += size.numCodewords
+	for _, shape := range shapes {
+		capacity += shape.numCodewords
 	}
 
 	order := make([]codewordSource, 0, capacity)
 
 	// Data codewords, then error correction codewords. The two passes differ
 	// only in which codewords of a block they draw from.
-	order = appendInterleaved(order, sizes, func(b blockSize) (int, int) {
+	order = appendInterleaved(order, shapes, func(b blockShape) (int, int) {
 		return 0, b.numDataCodewords
 	})
-	order = appendInterleaved(order, sizes, func(b blockSize) (int, int) {
+	order = appendInterleaved(order, shapes, func(b blockShape) (int, int) {
 		return b.numDataCodewords, b.numErrorCodewords()
 	})
 
 	return order
 }
 
-// appendInterleaved appends one round robin pass over sizes to order. For
+// appendInterleaved appends one round robin pass over shapes to order. For
 // each block, extent reports the codeword the pass starts at and how many
 // codewords it takes; a block contributes one per round until it runs out.
-func appendInterleaved(order []codewordSource, sizes []blockSize,
-	extent func(blockSize) (start int, count int)) []codewordSource {
+func appendInterleaved(order []codewordSource, shapes []blockShape,
+	extent func(blockShape) (start int, count int)) []codewordSource {
 
 	for i := 0; ; i++ {
 		exhausted := true
 
-		for b, size := range sizes {
-			start, count := extent(size)
+		for b, shape := range shapes {
+			start, count := extent(shape)
 
 			if i >= count {
 				continue
@@ -135,7 +139,7 @@ type codewordLayout struct {
 	source []codewordSource
 
 	// blocks[b] is the shape of block b.
-	blocks []blockSize
+	blocks []blockShape
 }
 
 // newCodewordLayout builds the layout of a version v symbol.
@@ -144,7 +148,7 @@ func newCodewordLayout(v qrCodeVersion) *codewordLayout {
 		version:    v,
 		symbolSize: v.symbolSize(),
 		source:     interleaveOrder(v),
-		blocks:     blockSizes(v),
+		blocks:     blockShapes(v),
 	}
 
 	l.codeword = make([]int, l.symbolSize*l.symbolSize)
@@ -180,6 +184,12 @@ func newCodewordLayout(v qrCodeVersion) *codewordLayout {
 // remainder bit costs nothing — so a caller that needs to tell them apart
 // must ask functionPatternSymbol, not this.
 func (l *codewordLayout) codewordAt(x int, y int) int {
+	if x < 0 || x >= l.symbolSize || y < 0 || y >= l.symbolSize {
+		log.Panicf("bug: module (%d,%d) is outside a version %d symbol, which "+
+			"is %d modules wide",
+			x, y, l.version.version, l.symbolSize)
+	}
+
 	return l.codeword[y*l.symbolSize+x]
 }
 
@@ -195,7 +205,7 @@ func (l *codewordLayout) blockOf(n int) int {
 }
 
 // block returns the shape of block b.
-func (l *codewordLayout) block(b int) blockSize {
+func (l *codewordLayout) block(b int) blockShape {
 	return l.blocks[b]
 }
 
