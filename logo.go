@@ -50,9 +50,9 @@ func DefaultLogoOptions() LogoOptions {
 // The remaining half is deliberately withheld: it pays for print bleed,
 // camera blur, glare and creased paper, none of which a unit test can see.
 type LogoTooLargeError struct {
-	// Scale and Margin are the options the logo was offered with.
-	Scale  float64
-	Margin int
+	// LogoOptions are the options the logo was offered with, so that Scale
+	// and Margin read straight off the error.
+	LogoOptions
 
 	// MaxScale is the largest scale that would have been accepted at this
 	// recovery level and margin, and is itself accepted if used. It is 0 when
@@ -87,9 +87,9 @@ func (e *LogoTooLargeError) Error() string {
 // are out of a sensible logo's reach, so this refusal means the scale is
 // wildly too large rather than slightly.
 type LogoOccludesFunctionPatternError struct {
-	// Scale and Margin are the options the logo was offered with.
-	Scale  float64
-	Margin int
+	// LogoOptions are the options the logo was offered with, so that Scale
+	// and Margin read straight off the error.
+	LogoOptions
 
 	// MaxScale is the largest scale that would have been accepted at this
 	// recovery level and margin, and is itself accepted if used. It is 0 when
@@ -135,7 +135,10 @@ func logoScaleAdvice(maxScale float64) string {
 //
 // A refusal is a *LogoTooLargeError or a *LogoOccludesFunctionPatternError,
 // both of which carry the largest scale that would have been accepted. That
-// scale is accepted if it is used.
+// scale is accepted if it is used. An unusable argument — no image, an empty
+// one, a scale outside (0, 1] or a negative margin — is a plain error rather
+// than one of these: it is a mistake in the call, not a verdict on the logo.
+// A refused logo changes nothing, so any logo already attached stays attached.
 //
 // The judgement is made here, against the version and recovery level the QR
 // Code was built with, and is never repeated. Nothing settable afterwards can
@@ -162,11 +165,11 @@ func (q *QRCode) SetLogo(logo image.Image, options LogoOptions) error {
 	}
 
 	fit := newLogoFit(q.version)
-	occlusion := fit.occlusionOf(
+	damage := fit.damageFrom(
 		newKnockout(fit.symbolSize, options.Scale, options.Margin))
 
-	if !occlusion.survivable() {
-		return q.logoRefusal(fit, options, occlusion)
+	if !damage.survivable() {
+		return logoRefusal(fit, options, damage)
 	}
 
 	q.logo = logo
@@ -175,34 +178,32 @@ func (q *QRCode) SetLogo(logo image.Image, options LogoOptions) error {
 	return nil
 }
 
-// logoRefusal returns the error explaining why occlusion is not survivable,
+// logoRefusal returns the error explaining why damage is not survivable,
 // including the largest scale that would have been.
-func (q *QRCode) logoRefusal(fit *logoFit, options LogoOptions,
-	occlusion occlusion) error {
+func logoRefusal(fit *logoFit, options LogoOptions,
+	damage knockoutDamage) error {
 
 	maxScale := fit.maxScale(options.Margin)
 
-	// Covering a function pattern is reported ahead of the budget, which such
-	// a logo also overruns: it is the more fundamental refusal, and unlike
-	// the budget no recovery level relaxes it.
-	if occlusion.occludesFunctionPattern {
+	// Occluding a function pattern is reported ahead of the budget, which
+	// such a logo also overruns: it is the more fundamental refusal, and
+	// unlike the budget no recovery level relaxes it.
+	if damage.occludesFunctionPattern {
 		return &LogoOccludesFunctionPatternError{
-			Scale:    options.Scale,
-			Margin:   options.Margin,
-			MaxScale: maxScale,
-			X:        occlusion.functionPattern.x,
-			Y:        occlusion.functionPattern.y,
+			LogoOptions: options,
+			MaxScale:    maxScale,
+			X:           damage.functionPattern.x,
+			Y:           damage.functionPattern.y,
 		}
 	}
 
-	worst := occlusion.worstBlock()
+	worst := damage.worstBlock()
 
 	return &LogoTooLargeError{
-		Scale:            options.Scale,
-		Margin:           options.Margin,
+		LogoOptions:      options,
 		MaxScale:         maxScale,
 		Block:            worst,
-		DamagedCodewords: occlusion.damaged[worst],
-		Capacity:         occlusion.blocks[worst].correctionCapacity(),
+		DamagedCodewords: damage.blocks[worst].damaged,
+		Capacity:         damage.blocks[worst].shape.correctionCapacity(),
 	}
 }

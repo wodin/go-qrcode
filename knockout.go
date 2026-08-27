@@ -12,8 +12,8 @@ import (
 // fall and still be treated as lying exactly on it.
 //
 // It exists so that a scale derived from a module count survives the round
-// trip back through newKnockout. maxLogoScale reports the scale of the widest
-// knockout that fits, computed as a ratio of whole modules; without a
+// trip back through newKnockout. logoFit.maxScale reports the scale of the
+// widest knockout that fits, computed as a ratio of whole modules; without a
 // tolerance a rounding error of one part in 2^52 would snap that scale
 // outwards to the next module and make the reported maximum unusable.
 const moduleSnapTolerance = 1e-9

@@ -32,11 +32,11 @@ func TestOcclusionCountsCodewordsNotModules(t *testing.T) {
 		fit := newLogoFit(v)
 
 		for width := 1; width <= 25; width += 2 {
-			o := fit.occlusionOf(knockoutOfWidth(v.symbolSize(), width))
+			d := fit.damageFrom(knockoutOfWidth(v.symbolSize(), width))
 
 			damaged := 0
-			for _, n := range o.damaged {
-				damaged += n
+			for _, block := range d.blocks {
+				damaged += block.damaged
 			}
 
 			// A codeword owns eight modules, so covering m data region
@@ -84,16 +84,16 @@ func TestOcclusionGrowsWithTheKnockout(t *testing.T) {
 		previous := make([]int, len(blockShapes(v)))
 
 		for width := 1; width <= v.symbolSize(); width += 2 {
-			o := fit.occlusionOf(knockoutOfWidth(v.symbolSize(), width))
+			d := fit.damageFrom(knockoutOfWidth(v.symbolSize(), width))
 
-			for b, damaged := range o.damaged {
-				if damaged < previous[b] {
+			for b, block := range d.blocks {
+				if block.damaged < previous[b] {
 					t.Fatalf("width %d: block %d lost %d codewords, having lost %d at the width below",
-						width, b, damaged, previous[b])
+						width, b, block.damaged, previous[b])
 				}
-			}
 
-			previous = o.damaged
+				previous[b] = block.damaged
+			}
 		}
 	})
 }
@@ -101,17 +101,17 @@ func TestOcclusionGrowsWithTheKnockout(t *testing.T) {
 func TestKnockoutCoveringTheWholeSymbolOccludesAFunctionPattern(t *testing.T) {
 	forSomeSymbols(t, func(t *testing.T, v qrCodeVersion) {
 		fit := newLogoFit(v)
-		o := fit.occlusionOf(knockoutOfWidth(v.symbolSize(), v.symbolSize()))
+		d := fit.damageFrom(knockoutOfWidth(v.symbolSize(), v.symbolSize()))
 
-		if !o.occludesFunctionPattern {
+		if !d.occludesFunctionPattern {
 			t.Fatal("a knockout covering the whole symbol occludes no function pattern")
 		}
 
-		if o.survivable() {
+		if d.survivable() {
 			t.Error("a knockout covering the whole symbol is survivable")
 		}
 
-		p := o.functionPattern
+		p := d.functionPattern
 		if protectedFunctionPatternSymbol(v).empty(p.x, p.y) {
 			t.Errorf("reported module (%d,%d) is not a protected function pattern", p.x, p.y)
 		}
@@ -123,18 +123,18 @@ func TestSurvivableKnockoutLeavesHalfTheCorrectionCapacity(t *testing.T) {
 		fit := newLogoFit(v)
 
 		for width := 1; width <= v.symbolSize(); width += 2 {
-			o := fit.occlusionOf(knockoutOfWidth(v.symbolSize(), width))
+			d := fit.damageFrom(knockoutOfWidth(v.symbolSize(), width))
 
-			if !o.survivable() {
+			if !d.survivable() {
 				break
 			}
 
-			for b, damaged := range o.damaged {
+			for b, block := range d.blocks {
 				capacity := blockShapes(v)[b].correctionCapacity()
 
-				if 2*damaged > capacity {
+				if 2*block.damaged > capacity {
 					t.Fatalf("width %d: block %d loses %d of its %d correctable codewords, want at most half",
-						width, b, damaged, capacity)
+						width, b, block.damaged, capacity)
 				}
 			}
 		}
@@ -150,7 +150,7 @@ func TestLargestSurvivingWidthIsTheLastThatSurvives(t *testing.T) {
 			smallest := 2*margin + 1
 
 			if width == 0 {
-				if fit.occlusionOf(knockoutOfWidth(v.symbolSize(), smallest)).survivable() {
+				if fit.damageFrom(knockoutOfWidth(v.symbolSize(), smallest)).survivable() {
 					t.Errorf("margin %d: no width survives, but the smallest knockout does", margin)
 				}
 
@@ -162,11 +162,11 @@ func TestLargestSurvivingWidthIsTheLastThatSurvives(t *testing.T) {
 					margin, width, smallest)
 			}
 
-			if !fit.occlusionOf(knockoutOfWidth(v.symbolSize(), width)).survivable() {
+			if !fit.damageFrom(knockoutOfWidth(v.symbolSize(), width)).survivable() {
 				t.Errorf("margin %d: the largest surviving width %d does not survive", margin, width)
 			}
 
-			if fit.occlusionOf(knockoutOfWidth(v.symbolSize(), width+2)).survivable() {
+			if fit.damageFrom(knockoutOfWidth(v.symbolSize(), width+2)).survivable() {
 				t.Errorf("margin %d: width %d survives, so %d is not the largest",
 					margin, width+2, width)
 			}
@@ -197,6 +197,48 @@ func TestMaxScaleReproducesTheLargestSurvivingKnockout(t *testing.T) {
 			if got := newKnockout(v.symbolSize(), scale, margin); got.width() != width {
 				t.Errorf("margin %d: max scale %v knocks out %d modules, want the largest surviving %d",
 					margin, scale, got.width(), width)
+			}
+		}
+	})
+}
+
+func TestWorstBlockIsTheBlockLeftWithLeastToSpare(t *testing.T) {
+	forSomeSymbols(t, func(t *testing.T, v qrCodeVersion) {
+		fit := newLogoFit(v)
+
+		for width := 1; width <= v.symbolSize(); width += 2 {
+			d := fit.damageFrom(knockoutOfWidth(v.symbolSize(), width))
+			worst := d.worstBlock()
+
+			for b, block := range d.blocks {
+				if block.spare() < d.blocks[worst].spare() {
+					t.Fatalf("width %d: block %d has %d codewords to spare, less than block %d, which was called the worst with %d",
+						width, b, block.spare(), worst, d.blocks[worst].spare())
+				}
+			}
+
+			// A symbol survives exactly while its worst block does, so the
+			// block singled out for the caller is the one that decided it.
+			if got, want := d.blocks[worst].spare() >= 0, d.survivable(); got != want &&
+				!d.occludesFunctionPattern {
+
+				t.Fatalf("width %d: the worst block is within budget = %v, but the symbol survives = %v",
+					width, got, want)
+			}
+		}
+	})
+}
+
+func TestBlockBudgetIsHalfTheCorrectionCapacity(t *testing.T) {
+	forEveryVersion(t, func(t *testing.T, v qrCodeVersion) {
+		for b, shape := range blockShapes(v) {
+			damage := blockDamage{shape: shape}
+
+			// ADR-0001 spends at most half of t, where t is half the block's
+			// error correction codewords.
+			if want := shape.numErrorCodewords() / 2 / 2; damage.budget() != want {
+				t.Fatalf("block %d of %d error correction codewords budgets %d damaged codewords, want %d",
+					b, shape.numErrorCodewords(), damage.budget(), want)
 			}
 		}
 	})

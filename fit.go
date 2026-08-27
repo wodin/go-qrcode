@@ -3,70 +3,78 @@
 
 package qrcode
 
-// occlusion is what seating a knockout costs one symbol: the codewords a
-// decoder will read wrongly, counted per block, and the first protected
-// function pattern module the knockout covers, if it covers any.
+// blockDamage is what a knockout costs one error correction block.
+type blockDamage struct {
+	shape blockShape
+
+	// damaged is the number of distinct codewords of the block the knockout
+	// covers.
+	damaged int
+}
+
+// budget returns the number of damaged codewords the block tolerates: half
+// its correction capacity.
 //
-// Damage is held per block because error correction is spent per block: a
+// The other half is deliberately withheld. It pays for print bleed, camera
+// blur, glare and a folded page — damage a unit test never sees and a
+// scanner cannot avoid — and it is the one tunable number in the design
+// (ADR-0001).
+func (d blockDamage) budget() int {
+	return d.shape.correctionCapacity() / 2
+}
+
+// spare returns how many further codewords the block could lose and stay
+// within budget, negative once the budget is overspent.
+func (d blockDamage) spare() int {
+	return d.budget() - d.damaged
+}
+
+// knockoutDamage is what seating a knockout costs one symbol: the codewords a
+// decoder will read wrongly, counted per block, and the first protected
+// function pattern the knockout occludes, if it occludes any.
+//
+// Damage is held per block because error correction is spent per block. A
 // block that loses more codewords than it can correct stops the whole symbol
-// decoding, however lightly the other blocks got off (ADR-0001).
-type occlusion struct {
+// decoding, however lightly the other blocks got off — so a total, or a mean,
+// would hide exactly the failure worth catching (ADR-0001).
+type knockoutDamage struct {
 	// occludesFunctionPattern reports whether the knockout covers a function
 	// pattern a logo may not cover, and functionPattern is the first such
 	// module, reading left to right and top to bottom.
 	occludesFunctionPattern bool
 	functionPattern         modulePosition
 
-	// damaged[b] is the number of distinct codewords of block b the knockout
-	// covers. blocks[b] is that block's shape.
-	damaged []int
-	blocks  []blockShape
+	// blocks[b] is what the knockout costs block b. Never empty: every
+	// version splits into at least one block.
+	blocks []blockDamage
 }
 
-// survivable reports whether a symbol with this occlusion is still safe to
-// put in front of a scanner.
+// survivable reports whether a symbol damaged like this is still safe to put
+// in front of a scanner.
 //
-// Every block must keep at least half its correction capacity: the half we
-// spend seats the logo, and the half we withhold pays for print bleed, camera
-// blur, glare and a folded page. Covering a protected function pattern is
-// never survivable, because a decoder needs those before error correction can
-// run at all.
-func (o occlusion) survivable() bool {
-	if o.occludesFunctionPattern {
-		return false
-	}
-
-	for b, damaged := range o.damaged {
-		if 2*damaged > o.blocks[b].correctionCapacity() {
-			return false
-		}
-	}
-
-	return true
+// Every block must be within its budget, and no protected function pattern
+// may be occluded: a decoder reads those before error correction can run at
+// all, so no budget can pay for them.
+func (d knockoutDamage) survivable() bool {
+	return !d.occludesFunctionPattern && d.blocks[d.worstBlock()].spare() >= 0
 }
 
-// worstBlock returns the index of the block left with the least correction
-// capacity to spare — the block that decides whether the occlusion is
-// survivable, and so the one worth reporting to a caller.
+// worstBlock returns the index of the block left with the least to spare —
+// the block that decides whether the damage is survivable, and so the one
+// worth reporting to a caller.
 //
 // Blocks of a version can differ in size, so blocks are ranked by what they
 // have left rather than by what they have lost.
-func (o occlusion) worstBlock() int {
+func (d knockoutDamage) worstBlock() int {
 	worst := 0
 
-	for b := range o.damaged {
-		if o.spare(b) < o.spare(worst) {
+	for b := range d.blocks {
+		if d.blocks[b].spare() < d.blocks[worst].spare() {
 			worst = b
 		}
 	}
 
 	return worst
-}
-
-// spare returns how much of block b's half share of its correction capacity
-// the occlusion leaves unspent, in half codewords.
-func (o occlusion) spare(b int) int {
-	return o.blocks[b].correctionCapacity() - 2*o.damaged[b]
 }
 
 // logoFit judges knockouts against the error correction budget of a single
@@ -91,11 +99,12 @@ func newLogoFit(v qrCodeVersion) *logoFit {
 	}
 }
 
-// occlusionOf returns what seating k costs the symbol.
-func (f *logoFit) occlusionOf(k knockout) occlusion {
-	o := occlusion{
-		damaged: make([]int, f.layout.numBlocks()),
-		blocks:  f.layout.blocks,
+// damageFrom returns what seating k costs the symbol.
+func (f *logoFit) damageFrom(k knockout) knockoutDamage {
+	d := knockoutDamage{blocks: make([]blockDamage, f.layout.numBlocks())}
+
+	for b := range d.blocks {
+		d.blocks[b].shape = f.layout.block(b)
 	}
 
 	// A codeword is damaged by the first of its modules the knockout covers
@@ -107,9 +116,9 @@ func (f *logoFit) occlusionOf(k knockout) occlusion {
 	for y := clipped.min.y; y < clipped.max.y; y++ {
 		for x := clipped.min.x; x < clipped.max.x; x++ {
 			if !f.protected.empty(x, y) {
-				if !o.occludesFunctionPattern {
-					o.occludesFunctionPattern = true
-					o.functionPattern = modulePosition{x: x, y: y}
+				if !d.occludesFunctionPattern {
+					d.occludesFunctionPattern = true
+					d.functionPattern = modulePosition{x: x, y: y}
 				}
 
 				continue
@@ -123,11 +132,11 @@ func (f *logoFit) occlusionOf(k knockout) occlusion {
 			}
 
 			counted[n] = true
-			o.damaged[f.layout.blockOf(n)]++
+			d.blocks[f.layout.blockOf(n)].damaged++
 		}
 	}
 
-	return o
+	return d
 }
 
 // largestSurvivingWidth returns the width in modules of the widest knockout
@@ -135,7 +144,7 @@ func (f *logoFit) occlusionOf(k knockout) occlusion {
 // or 0 if the symbol survives no logo at all.
 //
 // A wider knockout covers every module a narrower one does, so it can only
-// damage more codewords and cover more function patterns. Survival is
+// damage more codewords and occlude more function patterns. Survival is
 // therefore monotonic in width, and the widest survivor is the last one
 // before the first failure.
 func (f *logoFit) largestSurvivingWidth(margin int) int {
@@ -144,7 +153,7 @@ func (f *logoFit) largestSurvivingWidth(margin int) int {
 	// A logo of any size at all knocks out its centre module, so the
 	// narrowest knockout there is is that module plus the margin.
 	for width := 1 + 2*margin; width <= f.symbolSize; width += 2 {
-		if !f.occlusionOf(knockoutOfWidth(f.symbolSize, width)).survivable() {
+		if !f.damageFrom(knockoutOfWidth(f.symbolSize, width)).survivable() {
 			break
 		}
 

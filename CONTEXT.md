@@ -114,5 +114,14 @@ the logo's own extent — is what counts as damage against the correction
 capacity.
 
 **Occlusion**:
-A data-region module covered by the knockout, and therefore read wrongly by a
-decoder. Counted per codeword, never per module.
+A module covered by the knockout, and therefore read wrongly by a decoder.
+Occlusion of a data region module is counted per codeword, never per module,
+and charged against the correction capacity. Occlusion of a function pattern
+carries no such charge because no capacity can pay for it: a logo may occlude
+alignment patterns and no other function pattern (ADR-0002).
+
+**Damage**:
+What a knockout costs a symbol: the occluded codewords of every block, and
+any function pattern occlusion. `knockoutDamage` holds it, and a block is
+within its **budget** while it has lost no more than half its correction
+capacity.

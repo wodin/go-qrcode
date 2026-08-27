@@ -252,3 +252,57 @@ func TestSetLogoLeavesAQRCodeWithoutALogoUnchanged(t *testing.T) {
 		t.Error("a new QR Code already carries a logo")
 	}
 }
+
+func TestTheMarginIsChargedAgainstTheBudgetWithTheLogo(t *testing.T) {
+	for _, versionNumber := range someVersions {
+		for _, level := range everyLevel {
+			t.Run(versionLevelName(versionNumber, level), func(t *testing.T) {
+				q := forcedVersion(t, versionNumber, level)
+
+				options := LogoOptions{Scale: newLogoFit(q.version).maxScale(1), Margin: 1}
+				if options.Scale == 0 {
+					t.Skip("no logo fits this symbol at all")
+				}
+
+				if err := q.SetLogo(testLogo(), options); err != nil {
+					t.Fatalf("SetLogo at the largest accepted scale: %s", err)
+				}
+
+				// The knockout is the logo plus its margin, so widening the
+				// margin by a module on each side must cost the same logo the
+				// acceptance it just had. Were only the logo's own extent
+				// counted, nothing would change.
+				options.Margin = 2
+
+				if err := q.SetLogo(testLogo(), options); err == nil {
+					t.Errorf("widening the margin to %d modules cost a scale %v logo nothing",
+						options.Margin, options.Scale)
+				}
+			})
+		}
+	}
+}
+
+func TestARefusedLogoLeavesAnAttachedOneAlone(t *testing.T) {
+	q := forcedVersion(t, 10, Highest)
+
+	accepted := testLogo()
+	if err := q.SetLogo(accepted, DefaultLogoOptions()); err != nil {
+		t.Fatalf("SetLogo: %s", err)
+	}
+
+	options := DefaultLogoOptions()
+	options.Scale = 0.9
+
+	if err := q.SetLogo(testLogo(), options); err == nil {
+		t.Fatal("SetLogo accepted a scale 0.9 logo")
+	}
+
+	if q.logo != accepted {
+		t.Error("a refused logo displaced the one already attached")
+	}
+
+	if want := DefaultLogoOptions(); q.logoOptions != want {
+		t.Errorf("kept options %+v, want the accepted %+v", q.logoOptions, want)
+	}
+}
