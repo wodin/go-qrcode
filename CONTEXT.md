@@ -58,6 +58,23 @@ data region. The unit error correction actually operates on: a codeword with
 one wrong module and a codeword with eight wrong modules cost the decoder the
 same.
 
+**Placement path**:
+The order in which the encoded bit stream is laid into the data region:
+upwards from the bottom right corner in two-module-wide columns, reversing
+direction at each edge, stepping over every function pattern — and over the
+vertical timing pattern a whole column at a time, so that the columns either
+side of it stay correctly paired. Bit *i* goes to the *i*th module of the
+path, so codeword *n* occupies path modules 8*n* to 8*n*+7. It is what maps a
+module back to the codeword it carries. `dataModulePath` returns it.
+
+**Data mask**:
+One of eight fixed patterns exclusive-ORed with the encoded bit stream as it
+is placed, chosen per symbol to avoid module arrangements that confuse
+decoders. A property of a module's position, not of the bit placed there — so
+two symbols of the same version and mask differ only where their data differs.
+_Avoid_: mask (ambiguous — the spec also calls the chosen pattern's number the
+mask pattern reference)
+
 **Block**:
 A group of codewords with its own error correction codewords, correctable
 independently of the other blocks. Codewords are interleaved across blocks

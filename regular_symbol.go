@@ -4,6 +4,9 @@
 package qrcode
 
 import (
+	"fmt"
+	"log"
+
 	bitset "github.com/skip2/go-qrcode/bitset"
 )
 
@@ -112,7 +115,23 @@ func buildRegularSymbol(version qrCodeVersion, mask int,
 		quietZoneSize = version.quietZoneSize()
 	}
 
-	m := &regularSymbol{
+	m := newRegularSymbol(version, mask, data, quietZoneSize)
+
+	m.addFunctionPatterns()
+
+	if err := m.addData(); err != nil {
+		return nil, err
+	}
+
+	return m.symbol, nil
+}
+
+// newRegularSymbol returns an empty symbol of version, ready to have its
+// function patterns and then data added.
+func newRegularSymbol(version qrCodeVersion, mask int, data *bitset.Bitset,
+	quietZoneSize int) *regularSymbol {
+
+	return &regularSymbol{
 		version: version,
 		mask:    mask,
 		data:    data,
@@ -120,19 +139,16 @@ func buildRegularSymbol(version qrCodeVersion, mask int,
 		symbol: newSymbol(version.symbolSize(), quietZoneSize),
 		size:   version.symbolSize(),
 	}
+}
 
+// addFunctionPatterns sets every module whose value is fixed by the spec
+// rather than by the content, leaving the data region empty.
+func (m *regularSymbol) addFunctionPatterns() {
 	m.addFinderPatterns()
 	m.addAlignmentPatterns()
 	m.addTimingPatterns()
 	m.addFormatInfo()
 	m.addVersionInfo()
-
-	ok, err := m.addData()
-	if !ok {
-		return nil, err
-	}
-
-	return m.symbol, nil
 }
 
 func (m *regularSymbol) addFinderPatterns() {
@@ -234,82 +250,51 @@ func (m *regularSymbol) addVersionInfo() {
 	}
 }
 
-type direction uint8
-
-const (
-	up direction = iota
-	down
-)
-
-func (m *regularSymbol) addData() (bool, error) {
-	xOffset := 1
-	dir := up
-
-	x := m.size - 2
-	y := m.size - 1
-
-	for i := 0; i < m.data.Len(); i++ {
-		var mask bool
-		switch m.mask {
-		case 0:
-			mask = (y+x+xOffset)%2 == 0
-		case 1:
-			mask = y%2 == 0
-		case 2:
-			mask = (x+xOffset)%3 == 0
-		case 3:
-			mask = (y+x+xOffset)%3 == 0
-		case 4:
-			mask = (y/2+(x+xOffset)/3)%2 == 0
-		case 5:
-			mask = (y*(x+xOffset))%2+(y*(x+xOffset))%3 == 0
-		case 6:
-			mask = ((y*(x+xOffset))%2+((y*(x+xOffset))%3))%2 == 0
-		case 7:
-			mask = ((y+x+xOffset)%2+((y*(x+xOffset))%3))%2 == 0
-		}
-
-		// != is equivalent to XOR.
-		m.symbol.set(x+xOffset, y, mask != m.data.At(i))
-
-		if i == m.data.Len()-1 {
-			break
-		}
-
-		// Find next free bit in the symbol.
-		for {
-			if xOffset == 1 {
-				xOffset = 0
-			} else {
-				xOffset = 1
-
-				if dir == up {
-					if y > 0 {
-						y--
-					} else {
-						dir = down
-						x -= 2
-					}
-				} else {
-					if y < m.size-1 {
-						y++
-					} else {
-						dir = up
-						x -= 2
-					}
-				}
-			}
-
-			// Skip over the vertical timing pattern entirely.
-			if x == 5 {
-				x--
-			}
-
-			if m.symbol.empty(x+xOffset, y) {
-				break
-			}
-		}
+// dataMask returns the value the data mask contributes to the module at
+// (x, y). The encoded bit is exclusive-ORed with it before placement
+// (ISO/IEC 18004:2006 8.8.1).
+func (m *regularSymbol) dataMask(x int, y int) bool {
+	switch m.mask {
+	case 0:
+		return (y+x)%2 == 0
+	case 1:
+		return y%2 == 0
+	case 2:
+		return x%3 == 0
+	case 3:
+		return (y+x)%3 == 0
+	case 4:
+		return (y/2+x/3)%2 == 0
+	case 5:
+		return (y*x)%2+(y*x)%3 == 0
+	case 6:
+		return ((y*x)%2+((y*x)%3))%2 == 0
+	case 7:
+		return ((y+x)%2+((y*x)%3))%2 == 0
 	}
 
-	return true, nil
+	log.Panicf("bug: mask is %d (expected 0-7)", m.mask)
+
+	return false
+}
+
+// addData places the encoded bit stream into the data region, masked. The
+// function patterns must already be in place.
+func (m *regularSymbol) addData() error {
+	path := m.symbol.dataModulePath()
+
+	if m.data.Len() > len(path) {
+		return fmt.Errorf("cannot place %d bits of data in the %d module "+
+			"data region of a version %d symbol",
+			m.data.Len(), len(path), m.version.version)
+	}
+
+	for i := 0; i < m.data.Len(); i++ {
+		p := path[i]
+
+		// != is equivalent to XOR.
+		m.symbol.set(p.x, p.y, m.dataMask(p.x, p.y) != m.data.At(i))
+	}
+
+	return nil
 }

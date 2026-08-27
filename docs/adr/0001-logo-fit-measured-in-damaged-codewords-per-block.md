@@ -5,8 +5,8 @@ block can still recover. Error correction operates on codewords, not modules —
 a codeword with one wrong module costs a block exactly as much as one with
 eight wrong — so any check phrased as "the logo covers less than N% of the
 area" is measuring the wrong quantity, and the N is folklore. Instead we
-replay the `addData` placement walk to map each occluded module to its
-codeword, map codeword to block through the interleave that `encodeBlocks`
+walk the placement path that `dataModulePath` returns to map each occluded
+module to its codeword, map codeword to block through the interleave that `encodeBlocks`
 applies, count *distinct damaged codewords per block*, and require that count
 to stay within that block's correction capacity.
 
