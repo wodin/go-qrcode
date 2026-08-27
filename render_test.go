@@ -115,13 +115,33 @@ func TestImageWithALogoIsFullColour(t *testing.T) {
 
 // extentOf returns the bounding box of the pixels of img that are exactly c,
 // so that a test can find where the logo landed without repeating the
-// arithmetic that put it there.
-func extentOf(img image.Image, c color.RGBA) image.Rectangle {
+// arithmetic that put it there. It fails the test if the colour is nowhere in
+// the image, since every assertion built on the extent would then pass
+// vacuously.
+func extentOf(t *testing.T, img image.Image, c color.RGBA) image.Rectangle {
+	t.Helper()
+
+	extent := extentOfPixels(img.Bounds(), func(x int, y int) bool {
+		return rgbaAt(img, x, y) == c
+	})
+
+	if extent.Empty() {
+		t.Fatalf("no pixel of the rendered image is %+v", c)
+	}
+
+	return extent
+}
+
+// extentOfPixels returns the bounding box of the pixels of bounds that match,
+// or the empty rectangle if none do.
+func extentOfPixels(bounds image.Rectangle,
+	match func(x int, y int) bool) image.Rectangle {
+
 	extent := image.Rectangle{}
 
-	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
-		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
-			if rgbaAt(img, x, y) != c {
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			if !match(x, y) {
 				continue
 			}
 
@@ -162,11 +182,7 @@ func TestLogoIsCentredInsideARingOfBackground(t *testing.T) {
 	q := qrCodeWithLogo(t, 10, Highest, solidLogo(red, 64, 64), options)
 
 	img := q.Image(-pixelsPerModule)
-	logo := extentOf(img, red)
-
-	if logo.Empty() {
-		t.Fatal("no pixel of the rendered image is the logo's colour")
-	}
+	logo := extentOf(t, img, red)
 
 	assertCentred(t, logo, img.Bounds().Dx())
 
@@ -233,11 +249,7 @@ func TestNonSquareLogoKeepsItsAspectRatio(t *testing.T) {
 		DefaultLogoOptions())
 
 	img := q.Image(-pixelsPerModule)
-	logo := extentOf(img, red)
-
-	if logo.Empty() {
-		t.Fatal("no pixel of the rendered image is the logo's colour")
-	}
+	logo := extentOf(t, img, red)
 
 	// Half as tall as it is wide, as it was given, rather than stretched to
 	// the square knockout.
@@ -284,11 +296,7 @@ func TestTransparentLogoCompositesOverTheBackground(t *testing.T) {
 
 	img := q.Image(-pixelsPerModule)
 
-	opaque := extentOf(img, color.RGBA{B: 255, A: 255})
-	if opaque.Empty() {
-		t.Fatal("no pixel of the rendered image is the logo's opaque colour")
-	}
-
+	opaque := extentOf(t, img, color.RGBA{B: 255, A: 255})
 	// The transparent half shows the background through it rather than the
 	// black an unset alpha channel would otherwise paint. Sampled clear of
 	// the seam, where averaging blends the two halves.
@@ -312,11 +320,7 @@ func TestInvertedColoursClearTheKnockoutToTheInvertedBackground(t *testing.T) {
 	q.ForegroundColor = color.White
 
 	img := q.Image(-pixelsPerModule)
-	logo := extentOf(img, red)
-
-	if logo.Empty() {
-		t.Fatal("inverting the colours changed the logo's own")
-	}
+	logo := extentOf(t, img, red)
 
 	black := color.RGBA{A: 255}
 
@@ -349,7 +353,7 @@ func TestLogoIsDrawnAtTheRequestedScale(t *testing.T) {
 		q := qrCodeWithLogo(t, versionNumber, Highest, solidLogo(red, 64, 64), options)
 
 		img := q.Image(-pixelsPerModule)
-		logo := extentOf(img, red)
+		logo := extentOf(t, img, red)
 
 		// Scale is the logo's width as a fraction of the symbol's, whatever
 		// the knockout snapped out to around it.
@@ -505,26 +509,14 @@ func TestScalingALogoDownDoesNotBleedInvisibleColour(t *testing.T) {
 // knockoutExtent returns the bounding box of the pixels that a logo changed,
 // found by rendering the same QR Code without one. That is the knockout, and
 // it is where every claim about the seated logo has to be tested.
-func knockoutExtent(t *testing.T, with image.Image, without image.Image) image.Rectangle {
+func knockoutExtent(t *testing.T, with image.Image,
+	without image.Image) image.Rectangle {
+
 	t.Helper()
 
-	extent := image.Rectangle{}
-
-	for y := 0; y < with.Bounds().Dy(); y++ {
-		for x := 0; x < with.Bounds().Dx(); x++ {
-			if rgbaAt(with, x, y) == rgbaAt(without, x, y) {
-				continue
-			}
-
-			pixel := image.Rect(x, y, x+1, y+1)
-
-			if extent.Empty() {
-				extent = pixel
-			} else {
-				extent = extent.Union(pixel)
-			}
-		}
-	}
+	extent := extentOfPixels(with.Bounds(), func(x int, y int) bool {
+		return rgbaAt(with, x, y) != rgbaAt(without, x, y)
+	})
 
 	if extent.Empty() {
 		t.Fatal("the attached logo changed nothing")
