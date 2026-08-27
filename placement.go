@@ -36,6 +36,27 @@ func functionPatternSymbol(version qrCodeVersion) *symbol {
 	return m.symbol
 }
 
+// protectedFunctionPatternSymbol returns a symbol of version containing every
+// function pattern a logo may not cover — the finder patterns and their
+// separators, the timing patterns, the format info and the version info — and
+// nothing else. Like functionPatternSymbol it carries no quiet zone and no
+// data: only which modules are used matters.
+//
+// The alignment patterns are deliberately absent. A centred logo of any
+// useful size collides with one on most versions above 6, so refusing that
+// collision would delete the logo feature; the other function patterns are
+// out of a centred logo's reach and refusing them costs nothing (ADR-0002).
+func protectedFunctionPatternSymbol(version qrCodeVersion) *symbol {
+	m := newRegularSymbol(version, 0, nil, 0)
+
+	m.addFinderPatterns()
+	m.addTimingPatterns()
+	m.addFormatInfo()
+	m.addVersionInfo()
+
+	return m.symbol
+}
+
 // dataModulePath returns the modules of version's data region, in the order
 // the encoder fills them. See symbol.dataModulePath for what the order is.
 func dataModulePath(version qrCodeVersion) []modulePosition {

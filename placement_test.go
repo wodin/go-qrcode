@@ -138,3 +138,94 @@ func BenchmarkDataModulePath(b *testing.B) {
 		dataModulePath(*v)
 	}
 }
+
+// withinAnAlignmentPattern reports whether (x, y) lies in the 5x5 body of one
+// of v's alignment patterns.
+//
+// Derived from the alignment pattern centre table rather than from the symbol
+// the encoder builds, so that it can say independently what the difference
+// between the two function pattern symbols is allowed to contain.
+func withinAnAlignmentPattern(v qrCodeVersion, x int, y int) bool {
+	centres := alignmentPatternCenter[v.version]
+
+	near := func(centre int, i int) bool {
+		return i >= centre-2 && i <= centre+2
+	}
+
+	for _, cx := range centres {
+		for _, cy := range centres {
+			if near(cx, x) && near(cy, y) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func TestProtectedFunctionPatternsCoverEveryKindButAlignment(t *testing.T) {
+	// Version 7 is the smallest version carrying version info, so a single
+	// symbol holds all four protected kinds at once.
+	v := getQRCodeVersion(Medium, 7)
+	protected := protectedFunctionPatternSymbol(*v)
+
+	tests := []struct {
+		kind string
+		x, y int
+	}{
+		{"top left finder pattern", 0, 0},
+		{"top right finder pattern", 44, 0},
+		{"bottom left finder pattern", 0, 44},
+		{"finder pattern separator", 7, 0},
+		{"horizontal timing pattern", 8, 6},
+		{"vertical timing pattern", 6, 8},
+		{"format info", 8, 0},
+		{"format info, second copy", 8, 44},
+		{"always dark module", 8, 37},
+		{"version info", 0, 34},
+		{"version info, second copy", 34, 0},
+	}
+
+	for _, test := range tests {
+		if protected.empty(test.x, test.y) {
+			t.Errorf("module (%d,%d) is unprotected, want the %s protected",
+				test.x, test.y, test.kind)
+		}
+	}
+}
+
+func TestProtectedFunctionPatternsExcludeAlignmentPatterns(t *testing.T) {
+	// The centre of a version 7 symbol is the centre of an alignment pattern,
+	// which is exactly the collision ADR-0002 permits.
+	v := getQRCodeVersion(Medium, 7)
+	protected := protectedFunctionPatternSymbol(*v)
+
+	for _, p := range []modulePosition{{22, 22}, {20, 20}, {24, 24}, {20, 24}} {
+		if !protected.empty(p.x, p.y) {
+			t.Errorf("alignment pattern module (%d,%d) is protected, want it occludable",
+				p.x, p.y)
+		}
+	}
+}
+
+func TestProtectedFunctionPatternsAreTheFunctionPatternsLessAlignment(t *testing.T) {
+	forEveryVersion(t, func(t *testing.T, v qrCodeVersion) {
+		function := functionPatternSymbol(v)
+		protected := protectedFunctionPatternSymbol(v)
+
+		for y := 0; y < v.symbolSize(); y++ {
+			for x := 0; x < v.symbolSize(); x++ {
+				switch {
+				case !protected.empty(x, y) && function.empty(x, y):
+					t.Fatalf("module (%d,%d) is protected but is not a function pattern",
+						x, y)
+
+				case protected.empty(x, y) && !function.empty(x, y) &&
+					!withinAnAlignmentPattern(v, x, y):
+					t.Fatalf("function pattern module (%d,%d) is unprotected but is not part of an alignment pattern",
+						x, y)
+				}
+			}
+		}
+	})
+}
