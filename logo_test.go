@@ -1,0 +1,254 @@
+// go-qrcode
+// Copyright 2014 Tom Harwood
+
+package qrcode
+
+import (
+	"errors"
+	"image"
+	"testing"
+)
+
+// testLogo returns an image standing in for a caller's logo. Nothing is
+// rendered yet, so only that it is a non-empty image matters.
+func testLogo() image.Image {
+	return image.NewRGBA(image.Rect(0, 0, 64, 64))
+}
+
+// forcedVersion returns a QR Code of the given version and recovery level,
+// failing the test if one cannot be built.
+//
+// The content is a single digit so that it fits a version 1 symbol at every
+// recovery level: what a logo may cover depends on the version and level
+// alone, never on what is encoded.
+func forcedVersion(t *testing.T, versionNumber int, level RecoveryLevel) *QRCode {
+	t.Helper()
+
+	q, err := NewWithForcedVersion("1", versionNumber, level)
+	if err != nil {
+		t.Fatalf("NewWithForcedVersion(v%d, level %d): %s", versionNumber, level, err)
+	}
+
+	return q
+}
+
+func TestDefaultLogoOptions(t *testing.T) {
+	want := LogoOptions{Scale: 0.2, Margin: 1}
+
+	if got := DefaultLogoOptions(); got != want {
+		t.Errorf("DefaultLogoOptions() = %+v, want %+v", got, want)
+	}
+}
+
+func TestSetLogoAcceptsAModestLogoAtTheHighestRecoveryLevel(t *testing.T) {
+	q := forcedVersion(t, 10, Highest)
+
+	if err := q.SetLogo(testLogo(), DefaultLogoOptions()); err != nil {
+		t.Fatalf("SetLogo: %s", err)
+	}
+
+	if q.logo == nil {
+		t.Error("the accepted logo was not kept")
+	}
+
+	if want := DefaultLogoOptions(); q.logoOptions != want {
+		t.Errorf("kept options %+v, want %+v", q.logoOptions, want)
+	}
+}
+
+func TestSetLogoRefusesAnOversizedLogo(t *testing.T) {
+	q := forcedVersion(t, 10, Highest)
+
+	options := DefaultLogoOptions()
+	options.Scale = 0.6
+
+	err := q.SetLogo(testLogo(), options)
+
+	var tooLarge *LogoTooLargeError
+	if !errors.As(err, &tooLarge) {
+		t.Fatalf("SetLogo returned %v, want a *LogoTooLargeError", err)
+	}
+
+	if tooLarge.Scale != options.Scale || tooLarge.Margin != options.Margin {
+		t.Errorf("error reports scale %v margin %d, want the requested %v and %d",
+			tooLarge.Scale, tooLarge.Margin, options.Scale, options.Margin)
+	}
+
+	if tooLarge.MaxScale <= 0 || tooLarge.MaxScale >= options.Scale {
+		t.Errorf("error reports a maximum scale of %v, want one between 0 and the requested %v",
+			tooLarge.MaxScale, options.Scale)
+	}
+
+	blocks := blockShapes(q.version)
+
+	if tooLarge.Block < 0 || tooLarge.Block >= len(blocks) {
+		t.Fatalf("error blames block %d, want one of the %d blocks",
+			tooLarge.Block, len(blocks))
+	}
+
+	if want := blocks[tooLarge.Block].correctionCapacity(); tooLarge.Capacity != want {
+		t.Errorf("error reports capacity %d for block %d, want %d",
+			tooLarge.Capacity, tooLarge.Block, want)
+	}
+
+	// The blamed block must be one that actually broke the rule, or the
+	// numbers in the error do not explain the refusal.
+	if 2*tooLarge.DamagedCodewords <= tooLarge.Capacity {
+		t.Errorf("error blames block %d for losing %d of %d correctable codewords, which is within its half share",
+			tooLarge.Block, tooLarge.DamagedCodewords, tooLarge.Capacity)
+	}
+
+	if q.logo != nil {
+		t.Error("a refused logo was kept")
+	}
+}
+
+func TestReportedMaximumScaleIsAccepted(t *testing.T) {
+	for _, versionNumber := range someVersions {
+		for _, level := range everyLevel {
+			t.Run(versionLevelName(versionNumber, level), func(t *testing.T) {
+				q := forcedVersion(t, versionNumber, level)
+
+				options := DefaultLogoOptions()
+				options.Scale = 1
+
+				var tooLarge *LogoTooLargeError
+				var occludes *LogoOccludesFunctionPatternError
+
+				maxScale := 0.0
+
+				switch err := q.SetLogo(testLogo(), options); {
+				case errors.As(err, &tooLarge):
+					maxScale = tooLarge.MaxScale
+				case errors.As(err, &occludes):
+					maxScale = occludes.MaxScale
+				default:
+					t.Fatalf("a full width logo was not refused: %v", err)
+				}
+
+				if maxScale == 0 {
+					// Nothing fits: the advice is that there is none, and the
+					// smallest logo there is must be refused too.
+					options.Scale = 1 / float64(q.version.symbolSize())
+
+					if err := q.SetLogo(testLogo(), options); err == nil {
+						t.Fatal("no maximum scale was offered, but a one module logo was accepted")
+					}
+
+					return
+				}
+
+				options.Scale = maxScale
+
+				if err := q.SetLogo(testLogo(), options); err != nil {
+					t.Fatalf("the reported maximum scale %v was refused: %s", maxScale, err)
+				}
+			})
+		}
+	}
+}
+
+func TestSameLogoPassesAtAHigherRecoveryLevelAndFailsAtALower(t *testing.T) {
+	options := DefaultLogoOptions()
+
+	// A fifth of a version 10 symbol leaves every block of a Highest symbol
+	// over half its correction capacity, and overruns a Low symbol's.
+	if err := forcedVersion(t, 10, Highest).SetLogo(testLogo(), options); err != nil {
+		t.Errorf("a scale %v logo was refused at the Highest recovery level: %s",
+			options.Scale, err)
+	}
+
+	err := forcedVersion(t, 10, Low).SetLogo(testLogo(), options)
+
+	var tooLarge *LogoTooLargeError
+	if !errors.As(err, &tooLarge) {
+		t.Errorf("a scale %v logo returned %v at the Low recovery level, want a *LogoTooLargeError",
+			options.Scale, err)
+	}
+}
+
+func TestSetLogoPermitsAlignmentPatternOcclusion(t *testing.T) {
+	// The centre of a version 7 symbol is the centre of an alignment pattern.
+	q := forcedVersion(t, 7, Highest)
+	options := DefaultLogoOptions()
+
+	k := newKnockout(q.version.symbolSize(), options.Scale, options.Margin)
+	function := functionPatternSymbol(q.version)
+	protected := protectedFunctionPatternSymbol(q.version)
+
+	covered := false
+
+	for y := k.min.y; y < k.max.y; y++ {
+		for x := k.min.x; x < k.max.x; x++ {
+			if !function.empty(x, y) && protected.empty(x, y) {
+				covered = true
+			}
+		}
+	}
+
+	if !covered {
+		t.Fatal("the knockout covers no alignment pattern, so this proves nothing")
+	}
+
+	if err := q.SetLogo(testLogo(), options); err != nil {
+		t.Errorf("SetLogo refused a logo covering only an alignment pattern: %s", err)
+	}
+}
+
+func TestSetLogoRefusesFunctionPatternOcclusion(t *testing.T) {
+	q := forcedVersion(t, 7, Highest)
+
+	options := DefaultLogoOptions()
+	options.Scale = 1
+
+	err := q.SetLogo(testLogo(), options)
+
+	var occludes *LogoOccludesFunctionPatternError
+	if !errors.As(err, &occludes) {
+		t.Fatalf("SetLogo returned %v, want a *LogoOccludesFunctionPatternError", err)
+	}
+
+	if protectedFunctionPatternSymbol(q.version).empty(occludes.X, occludes.Y) {
+		t.Errorf("error blames module (%d,%d), which is not a protected function pattern",
+			occludes.X, occludes.Y)
+	}
+
+	if q.logo != nil {
+		t.Error("a refused logo was kept")
+	}
+}
+
+func TestSetLogoRejectsUnusableArguments(t *testing.T) {
+	empty := image.NewRGBA(image.Rect(0, 0, 0, 0))
+
+	tests := []struct {
+		name    string
+		logo    image.Image
+		options LogoOptions
+	}{
+		{"no image", nil, DefaultLogoOptions()},
+		{"an empty image", empty, DefaultLogoOptions()},
+		{"a zero scale", testLogo(), LogoOptions{Scale: 0, Margin: 1}},
+		{"a negative scale", testLogo(), LogoOptions{Scale: -0.2, Margin: 1}},
+		{"a scale past the symbol", testLogo(), LogoOptions{Scale: 1.5, Margin: 1}},
+		{"a negative margin", testLogo(), LogoOptions{Scale: 0.2, Margin: -1}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			q := forcedVersion(t, 10, Highest)
+
+			if err := q.SetLogo(test.logo, test.options); err == nil {
+				t.Error("SetLogo accepted it")
+			}
+		})
+	}
+}
+
+func TestSetLogoLeavesAQRCodeWithoutALogoUnchanged(t *testing.T) {
+	q := forcedVersion(t, 10, Highest)
+
+	if q.logo != nil {
+		t.Error("a new QR Code already carries a logo")
+	}
+}

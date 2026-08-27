@@ -139,6 +139,12 @@ type QRCode struct {
 	// Disable the QR Code border.
 	DisableBorder bool
 
+	// Logo attached by SetLogo, and the options it was accepted with. Unset
+	// until a logo is attached, and never changed by anything else: SetLogo
+	// judges a logo once, against the version and recovery level below.
+	logo        image.Image
+	logoOptions LogoOptions
+
 	encoder *dataEncoder
 	version qrCodeVersion
 
