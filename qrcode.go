@@ -443,67 +443,31 @@ func (q *QRCode) addTerminatorBits(numTerminatorBits int) {
 //
 // The QR Code's final data sequence is returned.
 func (q *QRCode) encodeBlocks() *bitset.Bitset {
-	// Split into blocks.
-	type dataBlock struct {
-		data          *bitset.Bitset
-		ecStartOffset int
-	}
+	sizes := blockSizes(q.version)
 
-	block := make([]dataBlock, q.version.numBlocks())
+	// Split into blocks, applying error correction to each. A block's bitset
+	// holds its data codewords followed by its error correction codewords, so
+	// a codewordSource's codeword index addresses either kind.
+	block := make([]*bitset.Bitset, len(sizes))
 
 	start := 0
-	end := 0
-	blockID := 0
 
-	for _, b := range q.version.block {
-		for j := 0; j < b.numBlocks; j++ {
-			start = end
-			end = start + b.numDataCodewords*8
+	for i, size := range sizes {
+		end := start + size.numDataCodewords*8
 
-			// Apply error correction to each block.
-			numErrorCodewords := b.numCodewords - b.numDataCodewords
-			block[blockID].data = reedsolomon.Encode(q.data.Substr(start, end), numErrorCodewords)
-			block[blockID].ecStartOffset = end - start
+		block[i] = reedsolomon.Encode(q.data.Substr(start, end),
+			size.numErrorCodewords())
 
-			blockID++
-		}
+		start = end
 	}
 
 	// Interleave the blocks.
-
 	result := bitset.New()
 
-	// Combine data blocks.
-	working := true
-	for i := 0; working; i += 8 {
-		working = false
+	for _, src := range interleaveOrder(q.version) {
+		bit := src.codeword * 8
 
-		for j, b := range block {
-			if i >= block[j].ecStartOffset {
-				continue
-			}
-
-			result.Append(b.data.Substr(i, i+8))
-
-			working = true
-		}
-	}
-
-	// Combine error correction blocks.
-	working = true
-	for i := 0; working; i += 8 {
-		working = false
-
-		for j, b := range block {
-			offset := i + block[j].ecStartOffset
-			if offset >= block[j].data.Len() {
-				continue
-			}
-
-			result.Append(b.data.Substr(offset, offset+8))
-
-			working = true
-		}
+		result.Append(block[src.block].Substr(bit, bit+8))
 	}
 
 	// Append remainder bits.
