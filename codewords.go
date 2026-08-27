@@ -24,6 +24,13 @@ func (b blockShape) numErrorCodewords() int {
 	return b.numCodewords - b.numDataCodewords
 }
 
+// correctionCapacity returns the number of damaged codewords the block can
+// recover when their positions are unknown: half its error correction
+// codewords (ISO/IEC 18004:2006 6.5.1).
+func (b blockShape) correctionCapacity() int {
+	return b.numErrorCodewords() / 2
+}
+
 // blockShapes expands v's grouped block table into one entry per block, in the
 // order the encoder splits the data between them.
 func blockShapes(v qrCodeVersion) []blockShape {

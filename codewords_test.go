@@ -25,6 +25,14 @@ func numTotalCodewords(v qrCodeVersion) int {
 	return codewords
 }
 
+// everyLevel is the four recovery levels, least protective first.
+var everyLevel = []RecoveryLevel{Low, Medium, High, Highest}
+
+// versionLevelName names a subtest for one version and recovery level.
+func versionLevelName(versionNumber int, level RecoveryLevel) string {
+	return fmt.Sprintf("v%d-level%d", versionNumber, level)
+}
+
 // forEveryVersion runs test once for each of the 160 version and recovery
 // level combinations, as a subtest named for the pair. Naming the subtest is
 // what lets the tests themselves report a failure without repeating which
@@ -33,13 +41,12 @@ func forEveryVersion(t *testing.T, test func(t *testing.T, v qrCodeVersion)) {
 	t.Helper()
 
 	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
-		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+		for _, level := range everyLevel {
 			v := getQRCodeVersion(level, versionNumber)
 
-			t.Run(fmt.Sprintf("v%d-level%d", versionNumber, level),
-				func(t *testing.T) {
-					test(t, *v)
-				})
+			t.Run(versionLevelName(versionNumber, level), func(t *testing.T) {
+				test(t, *v)
+			})
 		}
 	}
 }

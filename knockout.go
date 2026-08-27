@@ -3,7 +3,10 @@
 
 package qrcode
 
-import "math"
+import (
+	"log"
+	"math"
+)
 
 // moduleSnapTolerance is how close to a module boundary a knockout edge may
 // fall and still be treated as lying exactly on it.
@@ -48,7 +51,19 @@ func newKnockout(symbolSize int, scale float64, margin int) knockout {
 		rings = 0
 	}
 
+	return knockoutOfWidth(symbolSize, 1+2*rings)
+}
+
+// knockoutOfWidth returns the width module wide knockout centred in a
+// symbolSize module symbol. width must be odd, since only an odd width can be
+// centred on the symbol's middle module.
+func knockoutOfWidth(symbolSize int, width int) knockout {
+	if width%2 != 1 {
+		log.Panicf("bug: knockout width is %d (expected an odd number)", width)
+	}
+
 	centre := (symbolSize - 1) / 2
+	rings := (width - 1) / 2
 
 	return knockout{
 		min: modulePosition{x: centre - rings, y: centre - rings},
