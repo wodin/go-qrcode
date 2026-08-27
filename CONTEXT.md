@@ -113,6 +113,16 @@ including its surrounding margin. Larger than the logo itself, and it — not
 the logo's own extent — is what counts as damage against the correction
 capacity.
 
+**Seat**:
+The pixels of the rendered image the logo itself is drawn into: a fraction
+`LogoOptions.Scale` of the symbol's width, centred on the knockout, and
+narrowed or shortened to the logo's own aspect ratio. Always inside the
+knockout and generally smaller than it, because the knockout snaps outwards
+to an odd number of whole modules; the difference over and above the margin
+shows as extra background around the logo. Distinguished from the knockout
+because only the knockout counts as damage — enlarging the seat within a
+knockout already paid for costs the correction capacity nothing.
+
 **Occlusion**:
 A module covered by the knockout, and therefore read wrongly by a decoder.
 Occlusion of a data region module is counted per codeword, never per module,
