@@ -109,15 +109,21 @@ func (e *LogoOccludesFunctionPatternError) Error() string {
 		e.Scale, e.Margin, e.X, e.Y, logoScaleAdvice(e.MaxScale))
 }
 
-// logoScaleAdvice tells a caller what to do about a refusal: the scale to ask
-// for instead, or where else to look when no scale would have worked.
+// logoScaleAdvice tells a caller what the fit check found: the scale to ask
+// for instead, or that there is no such scale.
 //
-// A larger symbol is a real remedy and a lower recovery level is not: a
-// higher version carries more codewords per block, whereas a lower level
-// carries fewer error correction codewords to spend.
+// When nothing fits it names the levers and promises nothing of any of them,
+// because the obvious promise is false. Raising the recovery level often
+// makes matters worse: it carries more error correction as a fraction of the
+// symbol but splits it into more, smaller blocks, and correction capacity is
+// held per block, so a block's budget can fall as the percentage rises.
+// Version 15 accepts a larger logo at High than at Highest for exactly that
+// reason. Saying which lever works needs the package to search the versions
+// and levels, which it cannot yet be asked to do.
 func logoScaleAdvice(maxScale float64) string {
 	if maxScale == 0 {
-		return "no logo fits this symbol: raise the recovery level or force a larger version"
+		return "no logo fits this symbol at this margin: try a narrower " +
+			"margin, a larger version or a different recovery level"
 	}
 
 	return fmt.Sprintf("largest accepted scale is %.4f", maxScale)

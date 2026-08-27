@@ -243,3 +243,22 @@ func TestBlockBudgetIsHalfTheCorrectionCapacity(t *testing.T) {
 		}
 	})
 }
+
+func TestAHigherRecoveryLevelDoesNotAlwaysAcceptALargerLogo(t *testing.T) {
+	// A higher recovery level carries more error correction as a fraction of
+	// the symbol, but splits the symbol into more, smaller blocks — and
+	// correction capacity is held per block, so a block's budget can fall as
+	// the percentage rises.
+	//
+	// This is pinned because a refusal's advice depends on it: a message
+	// telling a caller to raise the recovery level would be wrong here, and
+	// the inversion is surprising enough that someone would otherwise
+	// "simplify" the message back.
+	high := newLogoFit(*getQRCodeVersion(High, 15)).maxScale(1)
+	highest := newLogoFit(*getQRCodeVersion(Highest, 15)).maxScale(1)
+
+	if !(highest < high) {
+		t.Errorf("version 15 accepts a scale %v logo at High and %v at Highest, want Highest to accept less",
+			high, highest)
+	}
+}
