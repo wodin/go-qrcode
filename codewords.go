@@ -3,9 +3,7 @@
 
 package qrcode
 
-import (
-	"log"
-)
+import "log"
 
 // blockShape is the shape of a single error correction block: how many
 // codewords it holds, and how many of those carry data rather than error
@@ -29,18 +27,18 @@ func (b blockShape) numErrorCodewords() int {
 // blockShapes expands v's grouped block table into one entry per block, in the
 // order the encoder splits the data between them.
 func blockShapes(v qrCodeVersion) []blockShape {
-	sizes := make([]blockShape, 0, v.numBlocks())
+	shapes := make([]blockShape, 0, v.numBlocks())
 
 	for _, group := range v.block {
 		for i := 0; i < group.numBlocks; i++ {
-			sizes = append(sizes, blockShape{
+			shapes = append(shapes, blockShape{
 				numCodewords:     group.numCodewords,
 				numDataCodewords: group.numDataCodewords,
 			})
 		}
 	}
 
-	return sizes
+	return shapes
 }
 
 // codewordSource locates one codeword of a symbol's interleaved codeword
