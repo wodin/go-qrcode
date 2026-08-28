@@ -70,8 +70,14 @@ Usage:
        qrcode "homepage: https://github.com/skip2/go-qrcode" > out.png
 
   3. Brand the QR Code with a logo in its centre. The logo and the clear
-     space around it cost error correction, so a logo the QR Code could not
-     survive is refused, with advice on what would fit instead:
+     space around it cost error correction, so without -logo-scale the
+     largest logo the QR Code survives is used, and the scale chosen is
+     reported on stderr:
+
+       qrcode -L logo.png "https://example.org" > out.png
+
+     A scale given explicitly is used exactly or refused, with advice on
+     what would fit instead:
 
        qrcode -L logo.png -logo-scale 0.15 "https://example.org" > out.png
 
@@ -116,6 +122,34 @@ func attachLogo(q *qrcode.QRCode, path string, scale float64) error {
 	return q.SetLogo(logo, options)
 }
 
+// fitLogo reads the image in the file named by path and places it in the
+// centre of q at the largest scale the symbol carries, noting the choice on
+// stderr.
+//
+// This is what -L alone does, because the default scale of 0.2 is refused by
+// every symbol below version 6 at the recovery level the tool encodes at, and
+// a caller who named no scale asked for a branded QR Code rather than for one
+// particular size. The note is not a warning: it is how a caller learns the
+// scale and version they would name to ask for the same image explicitly.
+func fitLogo(q *qrcode.QRCode, path string, stderr io.Writer) error {
+	logo, err := readImage(path)
+	if err != nil {
+		return err
+	}
+
+	margin := qrcode.DefaultLogoOptions().Margin
+
+	if err := q.FitLogo(logo, margin); err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(stderr, "logo scaled to %.4f of the QR Code's width, "+
+		"the largest a version %d symbol accepts with a %d module margin\n",
+		q.MaxLogoScale(margin), q.VersionNumber, margin)
+
+	return err
+}
+
 // readImage decodes the image file named by path, which the standard library
 // must have a decoder for.
 //
@@ -157,7 +191,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	logoFile := flags.String("logo", "", "logo image file (PNG, JPEG or GIF) to place in the centre, empty for none")
 	flags.StringVar(logoFile, "L", "", "shorthand for -logo")
 	logoScale := flags.Float64("logo-scale", qrcode.DefaultLogoOptions().Scale,
-		"logo width as a fraction of the QR Code's width, excluding the border")
+		"logo width as a fraction of the QR Code's width, excluding the border (default: the largest that fits)")
 	flags.Usage = func() { printUsage(flags) }
 
 	if err := flags.Parse(args); err != nil {
@@ -188,7 +222,14 @@ func run(args []string, stdout, stderr io.Writer) error {
 	q.DisableBorder = *disableBorder
 
 	if *logoFile != "" {
-		if err := attachLogo(q, *logoFile, *logoScale); err != nil {
+		// A scale the caller named is seated exactly or refused; one they did
+		// not is the tool's to choose, and it chooses the largest that fits.
+		place := func() error { return fitLogo(q, *logoFile, stderr) }
+		if isSet(flags, "logo-scale") {
+			place = func() error { return attachLogo(q, *logoFile, *logoScale) }
+		}
+
+		if err := place(); err != nil {
 			return err
 		}
 	}

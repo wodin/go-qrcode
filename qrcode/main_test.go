@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -16,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 // invoke runs the command line tool as the process would, capturing both
@@ -438,8 +441,11 @@ func TestLogoFlagPlacesTheLogoInTheCentre(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(-L %s <content>) error = %v, want nil", logo, err)
 	}
-	if stderr != "" {
-		t.Errorf("run(-L ...) stderr = %q, want nothing", stderr)
+
+	// The image goes to stdout whatever the tool has to say about the scale
+	// it picked, so a note about the fit never lands in a piped PNG.
+	if !strings.Contains(stderr, "logo scaled to") {
+		t.Errorf("run(-L ...) stderr = %q, want the fitted scale reported", stderr)
 	}
 
 	if got := centreColour(t, stdout); !nearLogoColour(got) {
@@ -496,20 +502,70 @@ func logoWidth(t *testing.T, stdout []byte) int {
 	return width
 }
 
-func TestTheLogoScaleDefaultsToAFifthOfTheSymbol(t *testing.T) {
+// shortContent is content a version 1 symbol carries at the Highest recovery
+// level, where the default scale of 0.2 has never fitted. Fitting the logo is
+// what lets the tool brand it at all.
+const shortContent = "hello"
+
+func TestALogoIsFittedWhenNoScaleIsGiven(t *testing.T) {
 	logo := writeLogo(t, ".png")
 
-	byDefault, _, err := invoke(t, "-L", logo, brandedContent)
+	stdout, stderr, err := invoke(t, "-L", logo, shortContent)
 	if err != nil {
-		t.Fatalf("run(-L ...) error = %v, want nil", err)
+		t.Fatalf("run(-L %s hello) error = %v, want nil: the tool picks a scale that fits", logo, err)
 	}
-	stated, _, err := invoke(t, "-L", logo, "-logo-scale", "0.2", brandedContent)
+
+	if got := centreColour(t, stdout); !nearLogoColour(got) {
+		t.Errorf("the centre of the image is %v, want the logo colour %v", got, logoColour)
+	}
+
+	// The size was the tool's to choose, so it says what it chose and which
+	// symbol decided it — the two things a caller needs to ask for the same
+	// result explicitly.
+	q, err := qrcode.New(shortContent, qrcode.Highest)
+	if err != nil {
+		t.Fatalf("qrcode.New: %v", err)
+	}
+
+	scale := fmt.Sprintf("%.4f", q.MaxLogoScale(qrcode.DefaultLogoOptions().Margin))
+	version := fmt.Sprintf("version %d", q.VersionNumber)
+
+	for _, want := range []string{scale, version} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("run(-L ...) stderr = %q, want it to report %q", stderr, want)
+		}
+	}
+}
+
+func TestAnExplicitLogoScaleIsSeatedExactlyOrRefused(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	// Exactly what was asked for, and no note about a choice the tool did not
+	// make.
+	stated, stderr, err := invoke(t, "-L", logo, "-logo-scale", "0.2", brandedContent)
 	if err != nil {
 		t.Fatalf("run(-logo-scale 0.2 ...) error = %v, want nil", err)
 	}
+	if stderr != "" {
+		t.Errorf("run(-logo-scale 0.2 ...) stderr = %q, want nothing: the caller chose the scale", stderr)
+	}
 
-	if !bytes.Equal(byDefault, stated) {
-		t.Error("the default scale differs from an explicit 0.2")
+	fitted, _, err := invoke(t, "-L", logo, brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L ...) error = %v, want nil", err)
+	}
+	if bytes.Equal(stated, fitted) {
+		t.Error("an explicit 0.2 produced the fitted logo, so the flag chose nothing")
+	}
+
+	// And a scale the symbol cannot carry is still refused rather than
+	// quietly shrunk to one it can.
+	_, _, err = invoke(t, "-L", logo, "-logo-scale", "0.6", brandedContent)
+	if err == nil {
+		t.Fatal("run(-logo-scale 0.6 ...) returned no error, want the logo refused")
+	}
+	if !strings.Contains(err.Error(), "largest accepted scale") {
+		t.Errorf("run(-logo-scale 0.6 ...) error = %q, want the scale that would fit", err)
 	}
 }
 
@@ -527,7 +583,7 @@ func TestLogoScaleFlagSetsTheLogoWidth(t *testing.T) {
 	}
 	if logoWidth(t, narrow) >= logoWidth(t, byDefault) {
 		t.Errorf("a 0.1 logo is %d pixels wide, no narrower than the %d of a "+
-			"0.2 one", logoWidth(t, narrow), logoWidth(t, byDefault))
+			"fitted one", logoWidth(t, narrow), logoWidth(t, byDefault))
 	}
 }
 
