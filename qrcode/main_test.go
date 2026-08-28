@@ -8,6 +8,9 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/draw"
+	"image/gif"
+	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -180,6 +183,12 @@ func TestTextArtFlagWritesASymbolToStdout(t *testing.T) {
 	}
 }
 
+// pixelAt returns the colour of one pixel of a rendered image, whatever
+// colour model the image itself was decoded into.
+func pixelAt(img image.Image, x, y int) color.RGBA {
+	return color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
+}
+
 // cornerColour returns the top left pixel of a rendered image, which lies in
 // the quiet zone and therefore carries the background colour.
 func cornerColour(t *testing.T, stdout []byte) color.RGBA {
@@ -187,7 +196,7 @@ func cornerColour(t *testing.T, stdout []byte) color.RGBA {
 
 	img := decodedImage(t, stdout)
 	b := img.Bounds()
-	return color.RGBAModel.Convert(img.At(b.Min.X, b.Min.Y)).(color.RGBA)
+	return pixelAt(img, b.Min.X, b.Min.Y)
 }
 
 func TestInvertFlagSwapsTheTextArtColours(t *testing.T) {
@@ -357,5 +366,321 @@ func TestTextArtIgnoresTheOutputFileFlag(t *testing.T) {
 	}
 	if _, err := os.Stat(prefix + ".png"); !os.IsNotExist(err) {
 		t.Errorf("run(-t -o ...) wrote %s.png, want no image", prefix)
+	}
+}
+
+// brandedContent is content long enough to carry a logo at the default
+// scale. The tool always encodes at the Highest recovery level, where a fifth
+// of the symbol's width first fits at version 6 — a version 1 symbol carrying
+// "hello" has no room for one.
+const brandedContent = "https://example.org/campaigns/spring-sale/branded-qr-code"
+
+// logoColour fills every test logo. It is a colour neither the symbol nor
+// the quiet zone carries, so finding it in the output proves the logo was
+// drawn rather than a module.
+var logoColour = color.RGBA{R: 255, A: 255}
+
+// nearLogoColour reports whether c is close enough to logoColour to be it,
+// allowing for what a lossy format or a palette does to a colour on the way
+// through.
+func nearLogoColour(c color.RGBA) bool {
+	return c.R > 200 && c.G < 60 && c.B < 60
+}
+
+// writeLogo encodes a solid logoColour square in the format named by suffix
+// and returns its path. The file lives in a per-test temporary directory, so
+// no test logo is ever tracked.
+func writeLogo(t *testing.T, suffix string) string {
+	t.Helper()
+
+	logo := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	draw.Draw(logo, logo.Bounds(), &image.Uniform{C: logoColour},
+		image.Point{}, draw.Src)
+
+	path := filepath.Join(t.TempDir(), "logo"+suffix)
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("creating the test logo: %v", err)
+	}
+	defer file.Close()
+
+	switch suffix {
+	case ".png":
+		err = png.Encode(file, logo)
+	case ".jpg":
+		err = jpeg.Encode(file, logo, nil)
+	case ".gif":
+		err = gif.Encode(file, logo, nil)
+	default:
+		t.Fatalf("no encoder for a %q logo", suffix)
+	}
+	if err != nil {
+		t.Fatalf("encoding the test logo: %v", err)
+	}
+
+	return path
+}
+
+// centreColour returns the middle pixel of a rendered image, which an
+// attached logo covers.
+func centreColour(t *testing.T, stdout []byte) color.RGBA {
+	t.Helper()
+
+	img := decodedImage(t, stdout)
+	b := img.Bounds()
+	return pixelAt(img, b.Min.X+b.Dx()/2, b.Min.Y+b.Dy()/2)
+}
+
+func TestLogoFlagPlacesTheLogoInTheCentre(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	stdout, stderr, err := invoke(t, "-L", logo, brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L %s <content>) error = %v, want nil", logo, err)
+	}
+	if stderr != "" {
+		t.Errorf("run(-L ...) stderr = %q, want nothing", stderr)
+	}
+
+	if got := centreColour(t, stdout); !nearLogoColour(got) {
+		t.Errorf("the centre of the image is %v, want the logo colour %v",
+			got, logoColour)
+	}
+}
+
+func TestTheLongLogoFlagNamesTheSameFileAsTheShortOne(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	short, _, err := invoke(t, "-L", logo, brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L %s <content>) error = %v, want nil", logo, err)
+	}
+	long, _, err := invoke(t, "-logo", logo, brandedContent)
+	if err != nil {
+		t.Fatalf("run(-logo %s <content>) error = %v, want nil", logo, err)
+	}
+	if !bytes.Equal(short, long) {
+		t.Error("-logo produced a different image from -L")
+	}
+}
+
+// The lowercase letter is held back for a flag the tool has yet to want, so
+// -l must stay undefined rather than quietly becoming a second spelling.
+func TestTheLowercaseLogoLetterIsUnused(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	_, stderr, err := invoke(t, "-l", logo, brandedContent)
+	if err == nil {
+		t.Fatal("run(-l ...) returned no error, want -l to be undefined")
+	}
+	if !strings.Contains(stderr, "flag provided but not defined: -l") {
+		t.Errorf("run(-l ...) stderr = %q, want -l to be undefined", stderr)
+	}
+}
+
+// logoWidth returns the number of logo-coloured pixels across the middle row
+// of a rendered image, which is how wide the logo was drawn.
+func logoWidth(t *testing.T, stdout []byte) int {
+	t.Helper()
+
+	img := decodedImage(t, stdout)
+	b := img.Bounds()
+	y := b.Min.Y + b.Dy()/2
+
+	width := 0
+	for x := b.Min.X; x < b.Max.X; x++ {
+		if nearLogoColour(pixelAt(img, x, y)) {
+			width++
+		}
+	}
+	return width
+}
+
+func TestTheLogoScaleDefaultsToAFifthOfTheSymbol(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	byDefault, _, err := invoke(t, "-L", logo, brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L ...) error = %v, want nil", err)
+	}
+	stated, _, err := invoke(t, "-L", logo, "-logo-scale", "0.2", brandedContent)
+	if err != nil {
+		t.Fatalf("run(-logo-scale 0.2 ...) error = %v, want nil", err)
+	}
+
+	if !bytes.Equal(byDefault, stated) {
+		t.Error("the default scale differs from an explicit 0.2")
+	}
+}
+
+func TestLogoScaleFlagSetsTheLogoWidth(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	byDefault, _, err := invoke(t, "-L", logo, brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L ...) error = %v, want nil", err)
+	}
+
+	narrow, _, err := invoke(t, "-L", logo, "-logo-scale", "0.1", brandedContent)
+	if err != nil {
+		t.Fatalf("run(-logo-scale 0.1 ...) error = %v, want nil", err)
+	}
+	if logoWidth(t, narrow) >= logoWidth(t, byDefault) {
+		t.Errorf("a 0.1 logo is %d pixels wide, no narrower than the %d of a "+
+			"0.2 one", logoWidth(t, narrow), logoWidth(t, byDefault))
+	}
+}
+
+func TestAScaleWithoutALogoIsAnError(t *testing.T) {
+	stdout, _, err := invoke(t, "-logo-scale", "0.1", brandedContent)
+
+	if err == nil {
+		t.Fatal("run(-logo-scale ...) without a logo returned no error")
+	}
+	if !strings.Contains(err.Error(), "-logo") {
+		t.Errorf("run(-logo-scale ...) error = %q, want it to name -logo", err)
+	}
+	if len(stdout) != 0 {
+		t.Errorf("run(-logo-scale ...) wrote %d bytes to stdout, want none",
+			len(stdout))
+	}
+}
+
+func TestJPEGAndGIFLogosAreAcceptedToo(t *testing.T) {
+	for _, suffix := range []string{".jpg", ".gif"} {
+		t.Run(suffix, func(t *testing.T) {
+			logo := writeLogo(t, suffix)
+
+			stdout, _, err := invoke(t, "-L", logo, brandedContent)
+			if err != nil {
+				t.Fatalf("run(-L %s ...) error = %v, want nil", logo, err)
+			}
+			if got := centreColour(t, stdout); !nearLogoColour(got) {
+				t.Errorf("the centre of the image is %v, want the logo colour",
+					got)
+			}
+		})
+	}
+}
+
+func TestALogoCannotBeShownAsTextArt(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	stdout, _, err := invoke(t, "-t", "-L", logo, brandedContent)
+
+	if err == nil {
+		t.Fatal("run(-t -L ...) returned no error, want text art to refuse a logo")
+	}
+	if !strings.Contains(err.Error(), "-t") {
+		t.Errorf("run(-t -L ...) error = %q, want it to name -t", err)
+	}
+	if len(stdout) != 0 {
+		t.Errorf("run(-t -L ...) wrote %d bytes to stdout, want none", len(stdout))
+	}
+}
+
+// logoError returns the failure of a run given the logo file named by path,
+// which the test expects to fail.
+func logoError(t *testing.T, path string) string {
+	t.Helper()
+
+	_, _, err := invoke(t, "-L", path, brandedContent)
+	if err == nil {
+		t.Fatalf("run(-L %s ...) returned no error", path)
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("run(-L %s ...) error = %q, want it to name the file", path, err)
+	}
+
+	return err.Error()
+}
+
+func TestEachWayALogoFileCanBeUnusableIsReportedDifferently(t *testing.T) {
+	dir := t.TempDir()
+	intact := writeLogo(t, ".png")
+
+	// A file that is there but is not an image, whatever its name promises.
+	prose := filepath.Join(dir, "prose.png")
+	if err := os.WriteFile(prose, []byte("not an image"), 0o600); err != nil {
+		t.Fatalf("writing the file that is not an image: %v", err)
+	}
+
+	// A PNG that is a PNG, and damaged. The format is not the problem here,
+	// so advice about formats would send the reader the wrong way.
+	whole, err := os.ReadFile(intact)
+	if err != nil {
+		t.Fatalf("reading the test logo back: %v", err)
+	}
+	truncated := filepath.Join(dir, "truncated.png")
+	if err := os.WriteFile(truncated, whole[:len(whole)/2], 0o600); err != nil {
+		t.Fatalf("writing the truncated PNG: %v", err)
+	}
+
+	missingErr := logoError(t, filepath.Join(dir, "absent.png"))
+	proseErr := logoError(t, prose)
+	truncatedErr := logoError(t, truncated)
+
+	if !strings.Contains(missingErr, "no such file") {
+		t.Errorf("a missing file reports %q, want it to say the file is not there",
+			missingErr)
+	}
+	if !strings.Contains(proseErr, "not a PNG, JPEG or GIF") {
+		t.Errorf("a file that is not an image reports %q, want the formats that "+
+			"would have worked", proseErr)
+	}
+	if strings.Contains(truncatedErr, "not a PNG") {
+		t.Errorf("a damaged PNG reports %q, blaming its format", truncatedErr)
+	}
+	if !strings.Contains(truncatedErr, "png:") {
+		t.Errorf("a damaged PNG reports %q, want the decoder's own complaint",
+			truncatedErr)
+	}
+}
+
+func TestAnOversizedLogoReportsTheLargestScaleThatFits(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	stdout, _, err := invoke(t, "-L", logo, "-logo-scale", "0.9", brandedContent)
+
+	if err == nil {
+		t.Fatal("run(-logo-scale 0.9 ...) returned no error, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "largest accepted scale is") {
+		t.Errorf("run(-logo-scale 0.9 ...) error = %q, want the largest "+
+			"accepted scale", err)
+	}
+	if len(stdout) != 0 {
+		t.Errorf("a refused logo wrote %d bytes to stdout, want none", len(stdout))
+	}
+}
+
+func TestAnInvertedImageCarriesTheLogoToo(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	stdout, _, err := invoke(t, "-i", "-L", logo, brandedContent)
+	if err != nil {
+		t.Fatalf("run(-i -L ...) error = %v, want nil", err)
+	}
+
+	black := color.RGBA{A: 255}
+	if got := cornerColour(t, stdout); got != black {
+		t.Errorf("inverted quiet zone is %v, want black", got)
+	}
+	if got := centreColour(t, stdout); !nearLogoColour(got) {
+		t.Errorf("the centre of the inverted image is %v, want the logo colour",
+			got)
+	}
+}
+
+func TestUsageDocumentsTheLogoFlags(t *testing.T) {
+	_, stderr, err := invoke(t, "-h")
+	if err != nil {
+		t.Fatalf("run(-h) error = %v, want nil", err)
+	}
+
+	for _, want := range []string{"-L", "-logo ", "-logo-scale", "(default 0.2)"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("the usage text does not mention %q:\n%s", want, stderr)
+		}
 	}
 }

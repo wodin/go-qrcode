@@ -50,8 +50,14 @@ qrcode -- QR Code encoder in Go
 https://github.com/skip2/go-qrcode
 
 Flags:
+  -L string
+    	shorthand for -logo
   -d	disable QR Code border
   -i	invert black and white
+  -logo string
+    	logo image file (PNG, JPEG or GIF) to place in the centre, empty for none
+  -logo-scale float
+    	logo width as a fraction of the QR Code's width, excluding the border (default 0.2)
   -o string
     	out PNG file prefix, empty for stdout
   -s int
@@ -68,6 +74,12 @@ Usage:
   2. Save to file if "display" not available:
 
        qrcode "homepage: https://github.com/skip2/go-qrcode" > out.png
+
+  3. Brand the QR Code with a logo in its centre. The logo and the clear
+     space around it cost error correction, so a logo the QR Code could not
+     survive is refused, with advice on what would fit instead:
+
+       qrcode -L logo.png -logo-scale 0.15 "https://example.org" > out.png
 
 ```
 ## Maximum capacity

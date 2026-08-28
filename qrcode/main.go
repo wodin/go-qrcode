@@ -7,6 +7,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"os"
 	"strings"
@@ -65,7 +69,76 @@ Usage:
 
        qrcode "homepage: https://github.com/skip2/go-qrcode" > out.png
 
+  3. Brand the QR Code with a logo in its centre. The logo and the clear
+     space around it cost error correction, so a logo the QR Code could not
+     survive is refused, with advice on what would fit instead:
+
+       qrcode -L logo.png -logo-scale 0.15 "https://example.org" > out.png
+
 `)
+}
+
+// misuse reports a command line that parsed but asks for something the tool
+// cannot do. The usage text comes first, as it does for a command line the
+// flag package itself rejects, so that the message is the last thing printed.
+func misuse(flags *flag.FlagSet, message string) error {
+	flags.Usage()
+
+	return errors.New(message)
+}
+
+// isSet reports whether the named flag was given on the command line, which
+// is what tells a flag left at its default apart from one deliberately set to
+// that value.
+func isSet(flags *flag.FlagSet, name string) bool {
+	given := false
+
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			given = true
+		}
+	})
+
+	return given
+}
+
+// attachLogo reads the image in the file named by path and places it in the
+// centre of q, scale of the symbol's width wide.
+func attachLogo(q *qrcode.QRCode, path string, scale float64) error {
+	logo, err := readImage(path)
+	if err != nil {
+		return err
+	}
+
+	options := qrcode.DefaultLogoOptions()
+	options.Scale = scale
+
+	return q.SetLogo(logo, options)
+}
+
+// readImage decodes the image file named by path, which the standard library
+// must have a decoder for.
+//
+// Three things go wrong here and each calls for a different fix, so each is
+// reported differently: a file that is not there, a file in a format the
+// standard library cannot read, and a file in a format it can read but which
+// is damaged — which the decoder itself describes better than we could.
+func readImage(path string) (image.Image, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if errors.Is(err, image.ErrFormat) {
+		return nil, fmt.Errorf("%s: not a PNG, JPEG or GIF", path)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+
+	return img, nil
 }
 
 // run is the command line tool: it encodes the content named by args and
@@ -81,6 +154,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 	textArt := flags.Bool("t", false, "print as text-art on stdout")
 	negative := flags.Bool("i", false, "invert black and white")
 	disableBorder := flags.Bool("d", false, "disable QR Code border")
+	logoFile := flags.String("logo", "", "logo image file (PNG, JPEG or GIF) to place in the centre, empty for none")
+	flags.StringVar(logoFile, "L", "", "shorthand for -logo")
+	logoScale := flags.Float64("logo-scale", qrcode.DefaultLogoOptions().Scale,
+		"logo width as a fraction of the QR Code's width, excluding the border")
 	flags.Usage = func() { printUsage(flags) }
 
 	if err := flags.Parse(args); err != nil {
@@ -92,8 +169,15 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if len(flags.Args()) == 0 {
-		flags.Usage()
-		return errors.New("Error: no content given")
+		return misuse(flags, "Error: no content given")
+	}
+
+	if *logoFile == "" && isSet(flags, "logo-scale") {
+		return misuse(flags, "-logo-scale needs a logo: pass -L <file>")
+	}
+
+	if *logoFile != "" && *textArt {
+		return misuse(flags, "text art cannot show a logo: drop -t or -L")
 	}
 
 	q, err := qrcode.New(strings.Join(flags.Args(), " "), qrcode.Highest)
@@ -102,6 +186,12 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 
 	q.DisableBorder = *disableBorder
+
+	if *logoFile != "" {
+		if err := attachLogo(q, *logoFile, *logoScale); err != nil {
+			return err
+		}
+	}
 
 	if *textArt {
 		_, err := fmt.Fprintln(stdout, q.ToString(*negative))
