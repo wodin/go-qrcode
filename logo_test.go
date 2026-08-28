@@ -148,6 +148,92 @@ func TestReportedMaximumScaleIsAccepted(t *testing.T) {
 	}
 }
 
+func TestMaxLogoScaleAnswersWhatARefusalWouldReport(t *testing.T) {
+	for _, versionNumber := range someVersions {
+		for _, level := range everyLevel {
+			t.Run(versionLevelName(versionNumber, level), func(t *testing.T) {
+				q := forcedVersion(t, versionNumber, level)
+
+				for _, margin := range []int{0, 1, 2, 5} {
+					// The query is the same answer the refusal carries, or
+					// the two drift and a caller who asked first is told
+					// something else when they attach.
+					options := LogoOptions{Scale: 1, Margin: margin}
+
+					var tooLarge *LogoTooLargeError
+					var occludes *LogoOccludesFunctionPatternError
+
+					refused := 0.0
+
+					switch err := q.SetLogo(testLogo(), options); {
+					case errors.As(err, &tooLarge):
+						refused = tooLarge.MaxScale
+					case errors.As(err, &occludes):
+						refused = occludes.MaxScale
+					default:
+						t.Fatalf("margin %d: a full width logo was not refused: %v", margin, err)
+					}
+
+					if got := q.MaxLogoScale(margin); got != refused {
+						t.Errorf("margin %d: MaxLogoScale reports %v, the refusal %v",
+							margin, got, refused)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestMaxLogoScaleIsAskedWithoutAttachingALogo(t *testing.T) {
+	q := forcedVersion(t, 10, Highest)
+
+	scale := q.MaxLogoScale(DefaultLogoOptions().Margin)
+
+	if scale <= 0 || scale > 1 {
+		t.Fatalf("MaxLogoScale reports %v, want a fraction of the symbol's width", scale)
+	}
+
+	if q.logo != nil {
+		t.Error("asking what fits attached a logo")
+	}
+
+	options := LogoOptions{Scale: scale, Margin: DefaultLogoOptions().Margin}
+
+	if err := q.SetLogo(testLogo(), options); err != nil {
+		t.Errorf("the scale MaxLogoScale reported was refused: %s", err)
+	}
+}
+
+func TestMaxLogoScaleFitsNothingIntoTheSmallestLowSymbols(t *testing.T) {
+	// Only these two fit no logo at all at the default margin, so they are
+	// where a caller first meets a zero, and where the fitted seat has to
+	// refuse rather than seat something.
+	for _, versionNumber := range []int{1, 2} {
+		q := forcedVersion(t, versionNumber, Low)
+
+		if got := q.MaxLogoScale(DefaultLogoOptions().Margin); got != 0 {
+			t.Errorf("version %d at Low reports a maximum scale of %v, want 0",
+				versionNumber, got)
+		}
+	}
+}
+
+func TestMaxLogoScaleFitsNothingIntoAMarginWiderThanAnySymbol(t *testing.T) {
+	q := forcedVersion(t, 40, Highest)
+
+	// A margin is clear space paid for out of the same budget as the logo, so
+	// a wide enough one leaves nothing for a logo of any size.
+	if got := q.MaxLogoScale(32); got != 0 {
+		t.Errorf("MaxLogoScale at a 32 module margin reports %v, want 0", got)
+	}
+
+	// A negative margin is not a narrower margin, it is not a margin: the
+	// answer is that nothing fits, not a larger logo than margin 0 allows.
+	if got := q.MaxLogoScale(-1); got != 0 {
+		t.Errorf("MaxLogoScale at a negative margin reports %v, want 0", got)
+	}
+}
+
 func TestSameLogoPassesAtAHigherRecoveryLevelAndFailsAtALower(t *testing.T) {
 	options := DefaultLogoOptions()
 

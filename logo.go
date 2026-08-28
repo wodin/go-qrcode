@@ -129,6 +129,30 @@ func logoScaleAdvice(maxScale float64) string {
 	return fmt.Sprintf("largest accepted scale is %.4f", maxScale)
 }
 
+// MaxLogoScale returns the largest LogoOptions.Scale SetLogo accepts for this
+// QR Code with margin modules of clear space around the logo, or 0 when no
+// logo of any size fits.
+//
+// It answers the question a refusal otherwise has to be provoked to answer,
+// and it is the same answer: the MaxScale carried by a refusal is this value.
+// The scale it reports is accepted if it is used.
+//
+// The answer depends on the symbol's version and recovery level alone, never
+// on the content encoded, because what a logo damages is which codewords it
+// covers and how those are grouped into error correction blocks. A margin
+// below 0 is not a margin and reports 0, as a margin wider than the symbol
+// does.
+//
+// A higher recovery level does not always report a larger scale. Correction
+// capacity is held per block, and a higher level splits the symbol into more,
+// smaller blocks, so a block's budget can fall as the proportion of the
+// symbol given to error correction rises: version 15 accepts 0.2727 at High
+// and only 0.1688 at Highest. Ask, rather than assume, which combination
+// carries the logo you want.
+func (q *QRCode) MaxLogoScale(margin int) float64 {
+	return newLogoFit(q.version).maxScale(margin)
+}
+
 // SetLogo attaches logo to the centre of the QR Code, refusing it if seating
 // it would put decoding at risk.
 //

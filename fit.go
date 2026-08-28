@@ -150,6 +150,13 @@ func (f *logoFit) damageFrom(k knockout) knockoutDamage {
 func (f *logoFit) largestSurvivingWidth(margin int) int {
 	widest := 0
 
+	// A negative margin is not clear space and no knockout has one, so there
+	// is no width to search: nothing fits, as it does not at a margin wider
+	// than the symbol.
+	if margin < 0 {
+		return 0
+	}
+
 	// A logo of any size at all knocks out its centre module, so the
 	// narrowest knockout there is is that module plus the margin.
 	for width := 1 + 2*margin; width <= f.symbolSize; width += 2 {
