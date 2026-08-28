@@ -3037,6 +3037,10 @@ func (v qrCodeVersion) quietZoneSize() int {
 	return 4
 }
 
+// maxVersionNumber is the largest QR Code version there is. Version numbers
+// run from 1 to here, at each of the four recovery levels.
+const maxVersionNumber = 40
+
 // getQRCodeVersion returns the QR Code version by version number and recovery
 // level. Returns nil if the requested combination is not defined.
 func getQRCodeVersion(level RecoveryLevel, version int) *qrCodeVersion {

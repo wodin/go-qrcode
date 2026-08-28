@@ -5,7 +5,11 @@ package qrcode
 
 import (
 	"errors"
+	"fmt"
 	"image"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -231,6 +235,117 @@ func TestMaxLogoScaleFitsNothingIntoAMarginWiderThanAnySymbol(t *testing.T) {
 	// answer is that nothing fits, not a larger logo than margin 0 allows.
 	if got := q.MaxLogoScale(-1); got != 0 {
 		t.Errorf("MaxLogoScale at a negative margin reports %v, want 0", got)
+	}
+}
+
+// namedVersion matches the version a refusal offers as a remedy, so that a
+// test can check the package really measured it rather than guessed.
+var namedVersion = regexp.MustCompile(
+	`version (\d+) at the same recovery level accepts a scale of up to ([0-9.]+)`)
+
+// refusalMessage returns the message SetLogo refuses a full width logo with,
+// which every symbol does at every margin.
+func refusalMessage(t *testing.T, q *QRCode, margin int) string {
+	t.Helper()
+
+	err := q.SetLogo(testLogo(), LogoOptions{Scale: 1, Margin: margin})
+	if err == nil {
+		t.Fatalf("margin %d: a full width logo was accepted", margin)
+	}
+
+	return err.Error()
+}
+
+func TestARefusalNamesOnlyAVersionItHasMeasured(t *testing.T) {
+	// Version 1 at Low fits no logo at all, so the refusal has to look
+	// elsewhere, and what it finds must hold up when the caller acts on it.
+	q := forcedVersion(t, 1, Low)
+
+	message := refusalMessage(t, q, DefaultLogoOptions().Margin)
+
+	named := namedVersion.FindStringSubmatch(message)
+	if named == nil {
+		t.Fatalf("no version named in %q, want one: a larger version does fit a logo here", message)
+	}
+
+	versionNumber, err := strconv.Atoi(named[1])
+	if err != nil {
+		t.Fatalf("version %q in %q: %s", named[1], message, err)
+	}
+
+	scale, err := strconv.ParseFloat(named[2], 64)
+	if err != nil {
+		t.Fatalf("scale %q in %q: %s", named[2], message, err)
+	}
+
+	if versionNumber <= q.VersionNumber {
+		t.Errorf("refusal offers version %d, which is not larger than the %d refusing",
+			versionNumber, q.VersionNumber)
+	}
+
+	larger := forcedVersion(t, versionNumber, q.Level)
+
+	if got := larger.MaxLogoScale(DefaultLogoOptions().Margin); !closeEnough(got, scale) {
+		t.Errorf("refusal offers version %d a scale of %v, which accepts %v",
+			versionNumber, scale, got)
+	}
+}
+
+func TestARefusalNamesNoVersionWhenTheScanFoundNone(t *testing.T) {
+	// A margin this wide is paid for out of the correction budget before any
+	// logo is, and defeats every version at every level, so there is nothing
+	// truthful to offer.
+	q := forcedVersion(t, 1, Low)
+
+	message := refusalMessage(t, q, 32)
+
+	if named := namedVersion.FindStringSubmatch(message); named != nil {
+		t.Errorf("refusal offers version %s at a 32 module margin, where no version fits a logo: %q",
+			named[1], message)
+	}
+}
+
+func TestNoRefusalAdvisesRaisingTheRecoveryLevel(t *testing.T) {
+	// The advice everyone expects, and the one the package must never give:
+	// 11 of the 120 level steps accept a smaller logo at the higher level
+	// (ADR-0004).
+	unmeasured := []string{
+		"higher recovery level",
+		"different recovery level",
+		"another recovery level",
+		"raise the recovery level",
+	}
+
+	for _, versionNumber := range someVersions {
+		for _, level := range everyLevel {
+			t.Run(versionLevelName(versionNumber, level), func(t *testing.T) {
+				q := forcedVersion(t, versionNumber, level)
+
+				for _, margin := range []int{0, 1, 2, 16, 32} {
+					message := refusalMessage(t, q, margin)
+
+					for _, phrase := range unmeasured {
+						if strings.Contains(message, phrase) {
+							t.Errorf("margin %d: refusal advises a %q: %q",
+								margin, phrase, message)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestARefusalReportsTheScaleThatWouldFit(t *testing.T) {
+	q := forcedVersion(t, 10, Highest)
+
+	message := refusalMessage(t, q, DefaultLogoOptions().Margin)
+
+	want := fmt.Sprintf("largest accepted scale is %.4f",
+		q.MaxLogoScale(DefaultLogoOptions().Margin))
+
+	if !strings.Contains(message, want) {
+		t.Errorf("refusal says %q, want it to report %q", message, want)
 	}
 }
 

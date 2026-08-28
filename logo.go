@@ -55,9 +55,9 @@ type LogoTooLargeError struct {
 	LogoOptions
 
 	// MaxScale is the largest scale that would have been accepted at this
-	// recovery level and margin, and is itself accepted if used. It is 0 when
-	// no logo of any size fits, which a higher recovery level or a larger
-	// symbol may fix.
+	// recovery level and margin, and is itself accepted if used. It is what
+	// MaxLogoScale reports. It is 0 when no logo of any size fits, and the
+	// message then says whether a larger version fits one.
 	MaxScale float64
 
 	// Block is the error correction block the logo left with the least
@@ -67,6 +67,8 @@ type LogoTooLargeError struct {
 	Block            int
 	DamagedCodewords int
 	Capacity         int
+
+	logoRemedy
 }
 
 func (e *LogoTooLargeError) Error() string {
@@ -74,7 +76,7 @@ func (e *LogoTooLargeError) Error() string {
 		"of the %d correctable codewords of block %d, more than the half it "+
 		"may spend: %s",
 		e.Scale, e.Margin, e.DamagedCodewords, e.Capacity, e.Block,
-		logoScaleAdvice(e.MaxScale))
+		logoScaleAdvice(e.MaxScale, e.logoRemedy))
 }
 
 // LogoOccludesFunctionPatternError is returned by SetLogo when a logo would
@@ -92,41 +94,92 @@ type LogoOccludesFunctionPatternError struct {
 	LogoOptions
 
 	// MaxScale is the largest scale that would have been accepted at this
-	// recovery level and margin, and is itself accepted if used. It is 0 when
-	// no logo of any size fits.
+	// recovery level and margin, and is itself accepted if used. It is what
+	// MaxLogoScale reports. It is 0 when no logo of any size fits, and the
+	// message then says whether a larger version fits one.
 	MaxScale float64
 
 	// X and Y locate a covered function pattern module, in modules from the
 	// top left corner of the symbol. The quiet zone is not counted.
 	X int
 	Y int
+
+	logoRemedy
 }
 
 func (e *LogoOccludesFunctionPatternError) Error() string {
 	return fmt.Sprintf("logo of scale %.4f with a %d module margin covers the "+
 		"function pattern module at (%d,%d), which carries no error "+
 		"correction: %s",
-		e.Scale, e.Margin, e.X, e.Y, logoScaleAdvice(e.MaxScale))
+		e.Scale, e.Margin, e.X, e.Y, logoScaleAdvice(e.MaxScale, e.logoRemedy))
+}
+
+// logoRemedy is a symbol the package has checked and found does carry a logo:
+// a larger version at the same recovery level and margin, and the largest
+// scale that version accepts.
+//
+// Its zero value means no such symbol was found, or that the scan never ran
+// because a logo fits here and the question does not arise. Both mean the
+// same thing to a refusal: it has nothing measured to offer, so it offers
+// nothing.
+type logoRemedy struct {
+	version int
+	scale   float64
+}
+
+// largerVersionFittingALogo scans versions above v, at v's own recovery level
+// and the given margin, for the first that fits a logo of any size.
+//
+// The recovery level is deliberately held fixed. Raising it is the advice
+// everyone expects and it is wrong often enough to be worthless: 11 of the
+// 120 level steps accept a smaller logo than the level below, and where
+// nothing fits at all it fails to help in most cases (ADR-0004). A larger
+// version is the one lever usually worth pulling, and this measures it rather
+// than assuming it.
+//
+// The scan builds a codeword layout per candidate, which is real work on an
+// error path. It is bounded by one level's 40 versions rather than all 160
+// combinations, it usually stops within a version or two, and it runs only
+// when nothing fits here at all. That is the price of saying only what has
+// been checked.
+func largerVersionFittingALogo(v qrCodeVersion, margin int) logoRemedy {
+	for versionNumber := v.version + 1; versionNumber <= maxVersionNumber; versionNumber++ {
+		larger := getQRCodeVersion(v.level, versionNumber)
+		if larger == nil {
+			continue
+		}
+
+		if scale := newLogoFit(*larger).maxScale(margin); scale > 0 {
+			return logoRemedy{version: versionNumber, scale: scale}
+		}
+	}
+
+	return logoRemedy{}
 }
 
 // logoScaleAdvice tells a caller what the fit check found: the scale to ask
-// for instead, or that there is no such scale.
+// for instead, a larger version that would carry a logo when this symbol
+// carries none, or that there is nothing to offer.
 //
-// When nothing fits it names the levers and promises nothing of any of them,
-// because the obvious promise is false. Raising the recovery level often
-// makes matters worse: it carries more error correction as a fraction of the
-// symbol but splits it into more, smaller blocks, and correction capacity is
-// held per block, so a block's budget can fall as the percentage rises.
-// Version 15 accepts a larger logo at High than at Highest for exactly that
-// reason. Saying which lever works needs the package to search the versions
-// and levels, which it cannot yet be asked to do.
-func logoScaleAdvice(maxScale float64) string {
-	if maxScale == 0 {
-		return "no logo fits this symbol at this margin: try a narrower " +
-			"margin, a larger version or a different recovery level"
-	}
+// Everything named here has been measured on the symbol it is offered for
+// (ADR-0004). No message suggests raising the recovery level, however
+// plausible that sounds: correction capacity is held per block, a higher
+// level splits the symbol into more, smaller blocks, and a block's budget can
+// fall as the proportion of the symbol given to error correction rises.
+func logoScaleAdvice(maxScale float64, remedy logoRemedy) string {
+	switch {
+	case maxScale > 0:
+		return fmt.Sprintf("largest accepted scale is %.4f", maxScale)
 
-	return fmt.Sprintf("largest accepted scale is %.4f", maxScale)
+	case remedy.version == 0:
+		return "no logo fits this symbol at this margin, and no larger " +
+			"version at the same recovery level fits one either"
+
+	default:
+		return fmt.Sprintf("no logo fits this symbol at this margin: version "+
+			"%d at the same recovery level accepts a scale of up to %.4f",
+			remedy.version, remedy.scale)
+	}
 }
 
 // MaxLogoScale returns the largest LogoOptions.Scale SetLogo accepts for this
@@ -199,7 +252,7 @@ func (q *QRCode) SetLogo(logo image.Image, options LogoOptions) error {
 		newKnockout(fit.symbolSize, options.Scale, options.Margin))
 
 	if !damage.survivable() {
-		return logoRefusal(fit, options, damage)
+		return q.logoRefusal(fit, options, damage)
 	}
 
 	q.logo = logo
@@ -209,11 +262,19 @@ func (q *QRCode) SetLogo(logo image.Image, options LogoOptions) error {
 }
 
 // logoRefusal returns the error explaining why damage is not survivable,
-// including the largest scale that would have been.
-func logoRefusal(fit *logoFit, options LogoOptions,
+// including the largest scale that would have been survivable and, when no
+// scale would have been, a larger version that carries a logo.
+func (q *QRCode) logoRefusal(fit *logoFit, options LogoOptions,
 	damage knockoutDamage) error {
 
 	maxScale := fit.maxScale(options.Margin)
+
+	// Only a symbol that carries no logo at all needs somewhere else to look,
+	// and only then is the scan worth what it costs.
+	remedy := logoRemedy{}
+	if maxScale == 0 {
+		remedy = largerVersionFittingALogo(q.version, options.Margin)
+	}
 
 	// Occluding a function pattern is reported ahead of the budget, which
 	// such a logo also overruns: it is the more fundamental refusal, and
@@ -224,6 +285,7 @@ func logoRefusal(fit *logoFit, options LogoOptions,
 			MaxScale:    maxScale,
 			X:           damage.functionPattern.x,
 			Y:           damage.functionPattern.y,
+			logoRemedy:  remedy,
 		}
 	}
 
@@ -235,5 +297,6 @@ func logoRefusal(fit *logoFit, options LogoOptions,
 		Block:            worst,
 		DamagedCodewords: damage.blocks[worst].damaged,
 		Capacity:         damage.blocks[worst].shape.correctionCapacity(),
+		logoRemedy:       remedy,
 	}
 }
