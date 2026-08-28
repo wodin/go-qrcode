@@ -4,6 +4,8 @@
 package reedsolomon
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	bitset "github.com/skip2/go-qrcode/bitset"
@@ -85,5 +87,192 @@ func TestEncode(t *testing.T) {
 				result.String(),
 				rsCode)
 		}
+	}
+}
+
+// generatorSink keeps the compiler from discarding a generator polynomial the
+// test below builds for its allocations alone.
+var generatorSink gfPoly
+
+// TestGeneratorPolyNotRebuiltPerCall pins the memoisation, with allocations as
+// the evidence: a cached degree costs one allocation per call — the copy handed
+// to the caller — where building the polynomial from scratch costs ~1900.
+func TestGeneratorPolyNotRebuiltPerCall(t *testing.T) {
+	allocs := testing.AllocsPerRun(100, func() {
+		generatorSink = rsGeneratorPoly(maxCachedGeneratorDegree)
+	})
+
+	if allocs > 1 {
+		t.Errorf("rsGeneratorPoly(%d) allocs=%v, want <= 1 (rebuilt per call?)",
+			maxCachedGeneratorDegree, allocs)
+	}
+}
+
+// TestGeneratorPolyNotSharedBetweenCallers guards the cache against its callers:
+// gfPoly holds a slice, so handing out the cached instance would let one caller
+// corrupt the polynomial every later caller receives.
+func TestGeneratorPolyNotSharedBetweenCallers(t *testing.T) {
+	want := gfPoly{term: []gfElement{116, 147, 63, 198, 31, 1}}
+
+	scribbled := rsGeneratorPoly(5)
+	for i := range scribbled.term {
+		scribbled.term[i] = 0
+	}
+
+	if generator := rsGeneratorPoly(5); !generator.equals(want) {
+		t.Errorf("degree=5 generator=%s after a caller overwrote an earlier "+
+			"copy, want %s", generator.string(true), want.string(true))
+	}
+}
+
+// TestGeneratorPolyCacheMatchesFreshBuild checks the cache against the builder
+// it stands in for, over every degree the table holds and the first one past
+// its end, calling repeatedly so a second call cannot differ from the first.
+func TestGeneratorPolyCacheMatchesFreshBuild(t *testing.T) {
+	for degree := 2; degree <= maxCachedGeneratorDegree+1; degree++ {
+		want := buildRSGeneratorPoly(degree)
+
+		for call := 0; call < 3; call++ {
+			generator := rsGeneratorPoly(degree)
+
+			if !generator.equals(want) {
+				t.Errorf("degree=%d call=%d generator=%s, want %s", degree, call,
+					generator.string(true), want.string(true))
+			}
+		}
+	}
+}
+
+// forgetCachedGeneratorPoly empties one entry of the cache, so a test that
+// wants to race the fill itself starts from a cold table however many earlier
+// tests in this process have already warmed it.
+//
+// It writes package state unsynchronised, which is safe only because Go runs a
+// package's tests one at a time. No test in this file may call t.Parallel.
+func forgetCachedGeneratorPoly(degree int) {
+	generatorPolyCache[degree].once = sync.Once{}
+	generatorPolyCache[degree].poly = gfPoly{}
+}
+
+// TestGeneratorPolyConcurrent races the fill itself: several goroutines ask for
+// the same cold degrees at once. Under `go test -race` this is what shows the
+// memoisation has not cost the package the concurrency safety it has always
+// had.
+func TestGeneratorPolyConcurrent(t *testing.T) {
+	// Every degree the table holds, and one past its end so the uncached path
+	// is raced too.
+	want := make([]gfPoly, maxCachedGeneratorDegree+2)
+
+	for degree := 2; degree < len(want); degree++ {
+		want[degree] = buildRSGeneratorPoly(degree)
+
+		if degree <= maxCachedGeneratorDegree {
+			forgetCachedGeneratorPoly(degree)
+		}
+	}
+
+	failures := runConcurrently(func() []string {
+		var failures []string
+
+		for degree := 2; degree < len(want); degree++ {
+			generator := rsGeneratorPoly(degree)
+
+			if !generator.equals(want[degree]) {
+				failures = append(failures, fmt.Sprintf("degree=%d generator=%s, want %s",
+					degree, generator.string(true), want[degree].string(true)))
+			}
+		}
+
+		return failures
+	})
+
+	for _, failure := range failures {
+		t.Error(failure)
+	}
+}
+
+// TestEncodeConcurrent demonstrates the criterion the cache had to preserve at
+// the level the package actually exposes: Encode, called from several
+// goroutines at once, over one shared input it must not disturb. Run under
+// `go test -race`.
+func TestEncodeConcurrent(t *testing.T) {
+	const numECBytes = 5
+
+	data := bitset.NewFromBase2String(
+		"01000000 00011000 10101100 11000011 00000000")
+	want := bitset.NewFromBase2String(
+		"01000000 00011000 10101100 11000011 00000000 10000110 00001101 " +
+			"00100010 10101110 00110000")
+
+	forgetCachedGeneratorPoly(numECBytes)
+
+	failures := runConcurrently(func() []string {
+		result := Encode(data, numECBytes)
+
+		if !want.Equals(result) {
+			return []string{fmt.Sprintf("encoded=%s, want %s", result.String(), want)}
+		}
+
+		return nil
+	})
+
+	for _, failure := range failures {
+		t.Error(failure)
+	}
+}
+
+// runConcurrently runs work in several goroutines released together, and
+// returns everything they reported. Failures are collected rather than reported
+// from the goroutines because t.Errorf may only be called from the goroutine
+// running the test.
+func runConcurrently(work func() []string) []string {
+	const numGoroutines = 8
+
+	start := make(chan struct{})
+	reported := make(chan []string, numGoroutines)
+
+	var wg sync.WaitGroup
+
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			<-start
+
+			reported <- work()
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+	close(reported)
+
+	var failures []string
+	for f := range reported {
+		failures = append(failures, f...)
+	}
+
+	return failures
+}
+
+// BenchmarkEncode encodes one block at the largest error correction size the QR
+// Code spec uses: numECBytes=30 over 15 data codewords, the shape of 20 of the
+// 81 blocks in a version 40 Highest symbol. Every one of those blocks pays this
+// cost, so it is the per-block price the generator polynomial cache changes.
+func BenchmarkEncode(b *testing.B) {
+	const numECBytes = maxCachedGeneratorDegree
+
+	data := bitset.New()
+	for i := 0; i < 15; i++ {
+		data.AppendByte(byte(i), 8)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for n := 0; n < b.N; n++ {
+		Encode(data, numECBytes)
 	}
 }

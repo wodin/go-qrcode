@@ -64,6 +64,11 @@ func (e gfPoly) data(numTerms int) []byte {
 	return result
 }
 
+// clone returns a copy of e sharing none of its storage.
+func (e gfPoly) clone() gfPoly {
+	return gfPoly{term: append([]gfElement(nil), e.term...)}
+}
+
 // numTerms returns the number of
 func (e gfPoly) numTerms() int {
 	return len(e.term)
