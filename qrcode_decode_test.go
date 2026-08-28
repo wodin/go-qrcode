@@ -205,8 +205,8 @@ func TestDecodeWithLogo(t *testing.T) {
 		t.Skip("Decode tests not enabled")
 	}
 
-	onAnAlignmentPattern := []int{7, 10, 21, 35}
-	clearOfOne := []int{1, 5, 20, 40}
+	onAnAlignmentPattern := []int{7, 10, 21, 35, 38}
+	clearOfOne := []int{1, 5, 14, 20, 40}
 
 	assertCentresAreOnAlignmentPatterns(t, onAnAlignmentPattern, true)
 	assertCentresAreOnAlignmentPatterns(t, clearOfOne, false)
