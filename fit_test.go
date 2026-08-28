@@ -3,7 +3,11 @@
 
 package qrcode
 
-import "testing"
+import (
+	"fmt"
+	"math"
+	"testing"
+)
 
 // someVersions is a spread of versions wide enough to exercise every block
 // layout shape without running the slower fit tests 160 times: version 1 has
@@ -250,15 +254,76 @@ func TestAHigherRecoveryLevelDoesNotAlwaysAcceptALargerLogo(t *testing.T) {
 	// correction capacity is held per block, so a block's budget can fall as
 	// the percentage rises.
 	//
-	// This is pinned because a refusal's advice depends on it: a message
-	// telling a caller to raise the recovery level would be wrong here, and
-	// the inversion is surprising enough that someone would otherwise
-	// "simplify" the message back.
-	high := newLogoFit(*getQRCodeVersion(High, 15)).maxScale(1)
-	highest := newLogoFit(*getQRCodeVersion(Highest, 15)).maxScale(1)
-
-	if !(highest < high) {
-		t.Errorf("version 15 accepts a scale %v logo at High and %v at Highest, want Highest to accept less",
-			high, highest)
+	// These are every fit inversion there is across the 120 recovery level
+	// steps at a one module margin. The whole table is pinned, rather than one
+	// case, because a refusal's advice depends on it: no message may tell a
+	// caller to raise the recovery level, and eleven scattered counterexamples
+	// are harder to dismiss as a curiosity of version 15 than one is
+	// (ADR-0004).
+	inversions := []struct {
+		versionNumber int
+		lower, higher RecoveryLevel
+		accepts       float64
+		butAccepts    float64
+	}{
+		{11, High, Highest, 0.2787, 0.2459},
+		{13, High, Highest, 0.2464, 0.1884},
+		{14, Low, Medium, 0.1507, 0.1233},
+		{15, High, Highest, 0.2727, 0.1688},
+		{18, High, Highest, 0.2360, 0.2135},
+		{21, Medium, High, 0.2079, 0.1881},
+		{22, Medium, High, 0.2381, 0.1810},
+		{23, Medium, High, 0.2110, 0.1927},
+		{27, Medium, High, 0.2160, 0.2000},
+		{34, High, Highest, 0.2941, 0.2810},
+		{39, Medium, High, 0.2254, 0.2023},
 	}
+
+	found := map[string]bool{}
+
+	for _, inversion := range inversions {
+		name := fmt.Sprintf("v%d-level%d-to-level%d",
+			inversion.versionNumber, inversion.lower, inversion.higher)
+		found[name] = true
+
+		t.Run(name, func(t *testing.T) {
+			lower := newLogoFit(*getQRCodeVersion(inversion.lower, inversion.versionNumber)).maxScale(1)
+			higher := newLogoFit(*getQRCodeVersion(inversion.higher, inversion.versionNumber)).maxScale(1)
+
+			if !closeEnough(lower, inversion.accepts) || !closeEnough(higher, inversion.butAccepts) {
+				t.Fatalf("accepts %.4f at the lower level and %.4f at the higher, want %.4f and %.4f",
+					lower, higher, inversion.accepts, inversion.butAccepts)
+			}
+
+			if !(higher < lower) {
+				t.Errorf("the higher level accepts %.4f, want less than the %.4f of the lower",
+					higher, lower)
+			}
+		})
+	}
+
+	// The table is every inversion, not merely eleven of them: a twelfth
+	// appearing means the fit check changed, and the advice built on the table
+	// needs looking at again.
+	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
+		for i := 0; i+1 < len(everyLevel); i++ {
+			lower := newLogoFit(*getQRCodeVersion(everyLevel[i], versionNumber)).maxScale(1)
+			higher := newLogoFit(*getQRCodeVersion(everyLevel[i+1], versionNumber)).maxScale(1)
+
+			name := fmt.Sprintf("v%d-level%d-to-level%d",
+				versionNumber, everyLevel[i], everyLevel[i+1])
+
+			if higher < lower && !found[name] {
+				t.Errorf("%s inverts, accepting %.4f then %.4f, and is not in the table",
+					name, lower, higher)
+			}
+		}
+	}
+}
+
+// closeEnough reports whether a measured scale matches one written out to four
+// decimal places, which is the precision a refusal reports and the table
+// above records.
+func closeEnough(got, want float64) bool {
+	return math.Abs(got-want) < 0.00005
 }
