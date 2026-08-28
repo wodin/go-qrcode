@@ -33,6 +33,34 @@ A command-line tool `qrcode` will be built into `$GOPATH/bin/`.
 
 All examples use the qrcode.Medium error Recovery Level and create a fixed 256x256px size QR Code. The last function creates a white on black instead of black on white QR Code.
 
+## Logos
+
+A logo may be placed in the centre of a QR Code. The logo, and the clear space kept around it, cover modules a decoder would otherwise read, so they are paid for out of the error recovery information — and only half of it, leaving the rest to absorb the damage print and camera do.
+
+- **Attach the largest logo the QR Code safely carries:**
+
+        q, err := qrcode.New("https://example.org", qrcode.Highest)
+        err = q.FitLogo(logo, 1)
+
+- **Attach a logo of a size you choose:**
+
+        options := qrcode.DefaultLogoOptions()
+        options.Scale = 0.15
+
+        err := q.SetLogo(logo, options)
+
+  A logo the QR Code could not survive is refused with a `*qrcode.LogoTooLargeError` or a `*qrcode.LogoOccludesFunctionPatternError`, each carrying the largest scale that would have been accepted.
+
+- **Ask what fits before attaching anything:**
+
+        scale := q.MaxLogoScale(1)
+
+  `MaxLogoScale` returns 0 when the QR Code carries no logo at all at that margin, which only versions 1 and 2 at the Low recovery level do at a one module margin.
+
+The default scale of 0.2 is not a size every QR Code carries: it is refused at Low for every version, below version 11 at Medium, and below version 6 at High and Highest.
+
+**A higher recovery level does not always accept a larger logo.** Error correction is spent per block, and a higher level splits the symbol into more, smaller blocks, so a single block's budget can fall even as the proportion of the symbol given to error correction rises. At a one module margin, version 15 accepts a logo of 0.2727 at High and only 0.1688 at Highest, and 11 of the 120 recovery level steps go backwards like this. Larger versions behave no more monotonically. Ask `MaxLogoScale`, or let `FitLogo` choose; do not reason it out from the percentages.
+
 ## Documentation
 
 [![godoc](https://godoc.org/github.com/skip2/go-qrcode?status.png)](https://godoc.org/github.com/skip2/go-qrcode)
@@ -57,7 +85,7 @@ Flags:
   -logo string
     	logo image file (PNG, JPEG or GIF) to place in the centre, empty for none
   -logo-scale float
-    	logo width as a fraction of the QR Code's width, excluding the border (default 0.2)
+    	logo width as a fraction of the QR Code's width, excluding the border (default: the largest that fits)
   -o string
     	out PNG file prefix, empty for stdout
   -s int
@@ -76,8 +104,14 @@ Usage:
        qrcode "homepage: https://github.com/skip2/go-qrcode" > out.png
 
   3. Brand the QR Code with a logo in its centre. The logo and the clear
-     space around it cost error correction, so a logo the QR Code could not
-     survive is refused, with advice on what would fit instead:
+     space around it cost error correction, so without -logo-scale the
+     largest logo the QR Code survives is used, and the scale chosen is
+     reported on stderr:
+
+       qrcode -L logo.png "https://example.org" > out.png
+
+     A scale given explicitly is used exactly or refused, with advice on
+     what would fit instead:
 
        qrcode -L logo.png -logo-scale 0.15 "https://example.org" > out.png
 

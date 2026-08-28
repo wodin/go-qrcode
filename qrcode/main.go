@@ -190,7 +190,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 	disableBorder := flags.Bool("d", false, "disable QR Code border")
 	logoFile := flags.String("logo", "", "logo image file (PNG, JPEG or GIF) to place in the centre, empty for none")
 	flags.StringVar(logoFile, "L", "", "shorthand for -logo")
-	logoScale := flags.Float64("logo-scale", qrcode.DefaultLogoOptions().Scale,
+	// The zero default is not a scale the tool ever uses — isSet decides
+	// whether the flag was given at all — and it keeps the flag package from
+	// printing a default that contradicts the description.
+	logoScale := flags.Float64("logo-scale", 0,
 		"logo width as a fraction of the QR Code's width, excluding the border (default: the largest that fits)")
 	flags.Usage = func() { printUsage(flags) }
 

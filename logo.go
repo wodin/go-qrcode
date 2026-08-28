@@ -40,6 +40,13 @@ type LogoOptions struct {
 //	options.Scale = 0.15
 //
 //	err := q.SetLogo(logo, options)
+//
+// A fifth is not a size every symbol carries, and no symbol carries it at the
+// Low recovery level: 0.2 is refused at Low for every version 1 to 40, below
+// version 11 at Medium, and below version 6 at High and Highest. These are
+// the options to start from when the size matters more than the attempt
+// succeeding. Where the QR Code has to work and the logo is yours to scale,
+// use FitLogo, which asks the symbol instead of assuming.
 func DefaultLogoOptions() LogoOptions {
 	return LogoOptions{Scale: defaultLogoScale, Margin: defaultLogoMargin}
 }

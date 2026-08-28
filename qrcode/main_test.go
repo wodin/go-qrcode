@@ -734,7 +734,11 @@ func TestUsageDocumentsTheLogoFlags(t *testing.T) {
 		t.Fatalf("run(-h) error = %v, want nil", err)
 	}
 
-	for _, want := range []string{"-L", "-logo ", "-logo-scale", "(default 0.2)"} {
+	// What -logo-scale defaults to is the fitted scale, not the package's
+	// 0.2: a caller reading the usage text must not be told a number the
+	// tool never uses.
+	for _, want := range []string{"-L", "-logo ", "-logo-scale",
+		"(default: the largest that fits)"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("the usage text does not mention %q:\n%s", want, stderr)
 		}
