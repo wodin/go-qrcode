@@ -368,6 +368,135 @@ func TestSameLogoPassesAtAHigherRecoveryLevelAndFailsAtALower(t *testing.T) {
 	}
 }
 
+func TestFitLogoSeatsTheLargestLogoTheSymbolCarries(t *testing.T) {
+	forSomeSymbolsAndMargins(t, func(t *testing.T, q *QRCode, margin int) {
+		scale := q.MaxLogoScale(margin)
+
+		err := q.FitLogo(testLogo(), margin)
+
+		if scale == 0 {
+			// Nothing fits, so there is nothing to seat: the caller gets one
+			// of the two ordinary refusals, describing what the smallest logo
+			// there is would have cost. Which of the two depends on the
+			// symbol — a wide enough margin buries a finder pattern on a
+			// small version before it overruns any budget.
+			var tooLarge *LogoTooLargeError
+			var occludes *LogoOccludesFunctionPatternError
+
+			if !errors.As(err, &tooLarge) && !errors.As(err, &occludes) {
+				t.Fatalf("margin %d: FitLogo returned %v where no logo fits, want an ordinary refusal",
+					margin, err)
+			}
+
+			if q.logo != nil {
+				t.Errorf("margin %d: a logo was seated where none fits", margin)
+			}
+
+			return
+		}
+
+		if err != nil {
+			t.Fatalf("margin %d: FitLogo refused the scale %v it reports fitting: %s",
+				margin, scale, err)
+		}
+
+		if q.logo == nil {
+			t.Fatalf("margin %d: FitLogo kept no logo", margin)
+		}
+
+		if want := (LogoOptions{Scale: scale, Margin: margin}); q.logoOptions != want {
+			t.Errorf("margin %d: logo seated with %+v, want %+v", margin, q.logoOptions, want)
+		}
+	})
+}
+
+// forSomeSymbolsAndMargins runs test over someVersions, every recovery level
+// and a spread of margins wide enough to reach the symbols that fit nothing.
+func forSomeSymbolsAndMargins(t *testing.T, test func(t *testing.T, q *QRCode, margin int)) {
+	t.Helper()
+
+	for _, versionNumber := range someVersions {
+		for _, level := range everyLevel {
+			for _, margin := range []int{0, 1, 2, 8} {
+				t.Run(fmt.Sprintf("%s-margin%d", versionLevelName(versionNumber, level), margin),
+					func(t *testing.T) {
+						test(t, forcedVersion(t, versionNumber, level), margin)
+					})
+			}
+		}
+	}
+}
+
+func TestFitLogoSucceedsWhereverAScaleFitsAtAll(t *testing.T) {
+	// The promise the fitted seat makes, over every symbol there is rather
+	// than a spread of them: if the query says something fits, the seat takes
+	// it. Fit inversion means the answer cannot be extrapolated from a
+	// neighbouring version or level, so each is asked.
+	for versionNumber := 1; versionNumber <= maxVersionNumber; versionNumber++ {
+		for _, level := range everyLevel {
+			q := forcedVersion(t, versionNumber, level)
+
+			margin := DefaultLogoOptions().Margin
+			if q.MaxLogoScale(margin) == 0 {
+				continue
+			}
+
+			if err := q.FitLogo(testLogo(), margin); err != nil {
+				t.Errorf("%s: FitLogo: %s", versionLevelName(versionNumber, level), err)
+			}
+		}
+	}
+}
+
+func TestFitLogoRefusesTheSmallestLowSymbols(t *testing.T) {
+	// The only symbols that carry no logo at all at the default margin. The
+	// refusal is the ordinary one, describing what the smallest logo there is
+	// would have cost, not a new kind of error a caller has to learn.
+	for _, versionNumber := range []int{1, 2} {
+		q := forcedVersion(t, versionNumber, Low)
+
+		err := q.FitLogo(testLogo(), DefaultLogoOptions().Margin)
+
+		var tooLarge *LogoTooLargeError
+		if !errors.As(err, &tooLarge) {
+			t.Errorf("version %d at Low: FitLogo returned %v, want a *LogoTooLargeError",
+				versionNumber, err)
+		}
+	}
+}
+
+func TestFitLogoRejectsUnusableArguments(t *testing.T) {
+	tests := []struct {
+		name   string
+		logo   image.Image
+		margin int
+	}{
+		{"no image", nil, 1},
+		{"an empty image", image.NewRGBA(image.Rect(0, 0, 0, 0)), 1},
+		{"a negative margin", testLogo(), -1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			q := forcedVersion(t, 10, Highest)
+
+			err := q.FitLogo(test.logo, test.margin)
+			if err == nil {
+				t.Fatal("FitLogo accepted it")
+			}
+
+			// A mistake in the call is not a verdict on the logo, exactly as
+			// it is not for SetLogo.
+			var tooLarge *LogoTooLargeError
+			var occludes *LogoOccludesFunctionPatternError
+
+			if errors.As(err, &tooLarge) || errors.As(err, &occludes) {
+				t.Errorf("FitLogo returned %v, want a plain error", err)
+			}
+		})
+	}
+}
+
 func TestSetLogoPermitsAlignmentPatternOcclusion(t *testing.T) {
 	// The centre of a version 7 symbol is the centre of an alignment pattern.
 	q := forcedVersion(t, 7, Highest)

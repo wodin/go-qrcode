@@ -206,6 +206,34 @@ func (q *QRCode) MaxLogoScale(margin int) float64 {
 	return newLogoFit(q.version).maxScale(margin)
 }
 
+// FitLogo attaches logo to the centre of the QR Code at the largest scale the
+// symbol safely carries, with margin modules of clear space around it.
+//
+// It is SetLogo asked the other way round. SetLogo takes the size a caller
+// wants and answers whether the symbol survives it; FitLogo takes the symbol
+// and picks the size, which is what a caller wants when the logo is theirs to
+// scale and the QR Code has to work. The scale chosen is the one MaxLogoScale
+// reports, and it is judged by SetLogo like any other.
+//
+// A symbol that carries no logo at all — only versions 1 and 2 at the Low
+// recovery level, at the default margin — is refused with the ordinary
+// refusal SetLogo would have given the smallest logo there is, describing
+// what that logo would have cost. There is no separate error to handle:
+// nothing fits is the same answer whether the caller named a size or left it
+// to the package.
+func (q *QRCode) FitLogo(logo image.Image, margin int) error {
+	scale := q.MaxLogoScale(margin)
+
+	if scale == 0 {
+		// Refusing the narrowest logo there is — one module wide, inside its
+		// margin — is what turns "nothing fits" into an error explaining
+		// which block ran out of capacity, rather than a bare sentence.
+		scale = 1 / float64(q.version.symbolSize())
+	}
+
+	return q.SetLogo(logo, LogoOptions{Scale: scale, Margin: margin})
+}
+
 // SetLogo attaches logo to the centre of the QR Code, refusing it if seating
 // it would put decoding at risk.
 //
