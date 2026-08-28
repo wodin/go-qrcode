@@ -15,8 +15,14 @@ go test ./...
 ```
 
 `.gitignore` carries a blanket `*.png`. Don't narrow that rule — no PNG in this
-repo is meant to be tracked, and the decode tests deliberately dump a PNG of the
-failing symbol when a round-trip mismatch occurs (`qrcode_decode_test.go`).
+repo is meant to be tracked.
+
+The tests write no PNG into the working tree. A decode round-trip mismatch
+still dumps the failing symbol for inspection, but into
+`$TMPDIR/go-qrcode-failed-symbols/<test name>/`, and logs the path
+(`writeFailedSymbol`, `qrcode_decode_test.go`). Those directories deliberately
+survive the run; don't move them to `t.TempDir`, which would delete each symbol
+before anyone could open the path that was logged.
 
 Cross-compile the CLI for Windows:
 
