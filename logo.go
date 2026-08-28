@@ -41,12 +41,16 @@ type LogoOptions struct {
 //
 //	err := q.SetLogo(logo, options)
 //
-// A fifth is not a size every symbol carries, and no symbol carries it at the
-// Low recovery level: 0.2 is refused at Low for every version 1 to 40, below
-// version 11 at Medium, and below version 6 at High and Highest. These are
-// the options to start from when the size matters more than the attempt
-// succeeding. Where the QR Code has to work and the logo is yours to scale,
-// use FitLogo, which asks the symbol instead of assuming.
+// A fifth is not a size every symbol carries. No symbol carries it at the Low
+// recovery level, at any version 1 to 40. At Medium it is first accepted at
+// version 11, at High and Highest at version 6 — and refused again at larger
+// versions above those, because a version resplits the symbol into blocks of
+// a different size rather than simply adding room. Do not read the first
+// accepting version as a floor: ask MaxLogoScale.
+//
+// These are the options to start from when the size matters more than the
+// attempt succeeding. Where the QR Code has to work and the logo is yours to
+// scale, use FitLogo, which asks the symbol instead of assuming.
 func DefaultLogoOptions() LogoOptions {
 	return LogoOptions{Scale: defaultLogoScale, Margin: defaultLogoMargin}
 }
@@ -229,13 +233,11 @@ func (q *QRCode) MaxLogoScale(margin int) float64 {
 // nothing fits is the same answer whether the caller named a size or left it
 // to the package.
 func (q *QRCode) FitLogo(logo image.Image, margin int) error {
-	scale := q.MaxLogoScale(margin)
+	fit := newLogoFit(q.version)
 
+	scale := fit.maxScale(margin)
 	if scale == 0 {
-		// Refusing the narrowest logo there is — one module wide, inside its
-		// margin — is what turns "nothing fits" into an error explaining
-		// which block ran out of capacity, rather than a bare sentence.
-		scale = 1 / float64(q.version.symbolSize())
+		scale = fit.smallestScale()
 	}
 
 	return q.SetLogo(logo, LogoOptions{Scale: scale, Margin: margin})
@@ -312,8 +314,9 @@ func (q *QRCode) logoRefusal(fit *logoFit, options LogoOptions,
 	}
 
 	// Occluding a function pattern is reported ahead of the budget, which
-	// such a logo also overruns: it is the more fundamental refusal, and
-	// unlike the budget no recovery level relaxes it.
+	// such a logo also overruns: it is the more fundamental refusal. No
+	// budget can pay for it, at any version or recovery level, whereas an
+	// overspent budget is at least a question of which symbol you ask.
 	if damage.occludesFunctionPattern {
 		return &LogoOccludesFunctionPatternError{
 			LogoOptions: options,

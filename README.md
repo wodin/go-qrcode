@@ -37,9 +37,9 @@ All examples use the qrcode.Medium error Recovery Level and create a fixed 256x2
 
 A logo may be placed in the centre of a QR Code. The logo, and the clear space kept around it, cover modules a decoder would otherwise read, so they are paid for out of the error recovery information — and only half of it, leaving the rest to absorb the damage print and camera do.
 
-- **Attach the largest logo the QR Code safely carries:**
+- **Attach the largest logo the QR Code safely carries**, with a one module margin around it:
 
-        q, err := qrcode.New("https://example.org", qrcode.Highest)
+        q, err := qrcode.New("https://example.org/campaigns/spring-sale", qrcode.Highest)
         err = q.FitLogo(logo, 1)
 
 - **Attach a logo of a size you choose:**
@@ -49,7 +49,7 @@ A logo may be placed in the centre of a QR Code. The logo, and the clear space k
 
         err := q.SetLogo(logo, options)
 
-  A logo the QR Code could not survive is refused with a `*qrcode.LogoTooLargeError` or a `*qrcode.LogoOccludesFunctionPatternError`, each carrying the largest scale that would have been accepted.
+  A logo the QR Code could not survive is refused with a `*qrcode.LogoTooLargeError` or a `*qrcode.LogoOccludesFunctionPatternError`, each carrying the largest scale that would have been accepted. The content above is long enough to make a version 5 symbol, which carries a scale 0.15 logo; the shorter `https://example.org` makes a version 3 symbol, which does not.
 
 - **Ask what fits before attaching anything:**
 
@@ -57,7 +57,7 @@ A logo may be placed in the centre of a QR Code. The logo, and the clear space k
 
   `MaxLogoScale` returns 0 when the QR Code carries no logo at all at that margin, which only versions 1 and 2 at the Low recovery level do at a one module margin.
 
-The default scale of 0.2 is not a size every QR Code carries: it is refused at Low for every version, below version 11 at Medium, and below version 6 at High and Highest.
+The default scale of 0.2 is not a size every QR Code carries. No version carries it at Low. At Medium it is first accepted at version 11, at High and Highest at version 6 — and refused again at larger versions above those, so the first accepting version is not a floor.
 
 **A higher recovery level does not always accept a larger logo.** Error correction is spent per block, and a higher level splits the symbol into more, smaller blocks, so a single block's budget can fall even as the proportion of the symbol given to error correction rises. At a one module margin, version 15 accepts a logo of 0.2727 at High and only 0.1688 at Highest, and 11 of the 120 recovery level steps go backwards like this. Larger versions behave no more monotonically. Ask `MaxLogoScale`, or let `FitLogo` choose; do not reason it out from the percentages.
 
@@ -111,9 +111,10 @@ Usage:
        qrcode -L logo.png "https://example.org" > out.png
 
      A scale given explicitly is used exactly or refused, with advice on
-     what would fit instead:
+     what would fit instead. Longer content makes a larger symbol, which
+     carries a larger logo:
 
-       qrcode -L logo.png -logo-scale 0.15 "https://example.org" > out.png
+       qrcode -L logo.png -logo-scale 0.15 "https://example.org/spring-sale" > out.png
 
 ```
 ## Maximum capacity

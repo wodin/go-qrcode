@@ -136,6 +136,14 @@ any function pattern occlusion. `knockoutDamage` holds it, and a block is
 within its **budget** while it has lost no more than half its correction
 capacity.
 
+**Remedy**:
+Another symbol the package has checked and found does carry a logo — in
+practice a larger version at the same recovery level and margin — offered by a
+refusal that carries none itself. Only a measured remedy is ever named
+(ADR-0004); where the scan finds none, the refusal says so rather than naming
+a lever.
+_Avoid_: suggestion, workaround, fix
+
 **Fit inversion**:
 A pair of symbols where the one carrying *more* error correction — a higher
 recovery level, or a larger version — accepts a *smaller* logo than the other.

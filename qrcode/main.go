@@ -77,9 +77,10 @@ Usage:
        qrcode -L logo.png "https://example.org" > out.png
 
      A scale given explicitly is used exactly or refused, with advice on
-     what would fit instead:
+     what would fit instead. Longer content makes a larger symbol, which
+     carries a larger logo:
 
-       qrcode -L logo.png -logo-scale 0.15 "https://example.org" > out.png
+       qrcode -L logo.png -logo-scale 0.15 "https://example.org/spring-sale" > out.png
 
 `)
 }
@@ -143,6 +144,9 @@ func fitLogo(q *qrcode.QRCode, path string, stderr io.Writer) error {
 		return err
 	}
 
+	// Asking again gives what was seated: the largest accepted scale depends
+	// on the symbol's version, recovery level and margin alone, none of which
+	// seating a logo changes.
 	_, err = fmt.Fprintf(stderr, "logo scaled to %.4f of the QR Code's width, "+
 		"the largest a version %d symbol accepts with a %d module margin\n",
 		q.MaxLogoScale(margin), q.VersionNumber, margin)
@@ -227,12 +231,13 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if *logoFile != "" {
 		// A scale the caller named is seated exactly or refused; one they did
 		// not is the tool's to choose, and it chooses the largest that fits.
-		place := func() error { return fitLogo(q, *logoFile, stderr) }
 		if isSet(flags, "logo-scale") {
-			place = func() error { return attachLogo(q, *logoFile, *logoScale) }
+			err = attachLogo(q, *logoFile, *logoScale)
+		} else {
+			err = fitLogo(q, *logoFile, stderr)
 		}
 
-		if err := place(); err != nil {
+		if err != nil {
 			return err
 		}
 	}

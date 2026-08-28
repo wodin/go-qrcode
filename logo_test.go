@@ -44,6 +44,51 @@ func TestDefaultLogoOptions(t *testing.T) {
 	}
 }
 
+func TestTheDefaultScaleIsNeverAcceptedAtLow(t *testing.T) {
+	// What DefaultLogoOptions' godoc and the README tell a caller, measured
+	// rather than repeated: no version at Low carries a fifth of its width,
+	// and the first version that does at each other level is the one named.
+	firstAccepting := map[RecoveryLevel]int{Medium: 11, High: 6, Highest: 6}
+
+	for _, level := range everyLevel {
+		first := 0
+
+		for versionNumber := 1; versionNumber <= maxVersionNumber; versionNumber++ {
+			q := forcedVersion(t, versionNumber, level)
+
+			if q.MaxLogoScale(defaultLogoMargin) >= defaultLogoScale && first == 0 {
+				first = versionNumber
+			}
+		}
+
+		if got, want := first, firstAccepting[level]; got != want {
+			if want == 0 {
+				t.Errorf("level %d first accepts the default scale at version %d, want no version to accept it",
+					level, got)
+			} else {
+				t.Errorf("level %d first accepts the default scale at version %d, want version %d",
+					level, got, want)
+			}
+		}
+	}
+}
+
+func TestTheDefaultScaleIsRefusedAgainAboveTheFirstVersionAcceptingIt(t *testing.T) {
+	// The first accepting version is not a floor, which is why the godoc says
+	// so: version 11 at Medium accepts the default scale and version 12 does
+	// not. A caller who read the first version as "this and everything above"
+	// would be refused.
+	if got := forcedVersion(t, 11, Medium).MaxLogoScale(defaultLogoMargin); got < defaultLogoScale {
+		t.Errorf("version 11 at Medium accepts %v, want at least the default scale %v",
+			got, defaultLogoScale)
+	}
+
+	if got := forcedVersion(t, 12, Medium).MaxLogoScale(defaultLogoMargin); got >= defaultLogoScale {
+		t.Errorf("version 12 at Medium accepts %v, want less than the default scale %v",
+			got, defaultLogoScale)
+	}
+}
+
 func TestSetLogoAcceptsAModestLogoAtTheHighestRecoveryLevel(t *testing.T) {
 	q := forcedVersion(t, 10, Highest)
 
@@ -208,7 +253,7 @@ func TestMaxLogoScaleIsAskedWithoutAttachingALogo(t *testing.T) {
 	}
 }
 
-func TestMaxLogoScaleFitsNothingIntoTheSmallestLowSymbols(t *testing.T) {
+func TestMaxLogoScaleReportsNothingFitsTheSmallestLowSymbols(t *testing.T) {
 	// Only these two fit no logo at all at the default margin, so they are
 	// where a caller first meets a zero, and where the fitted seat has to
 	// refuse rather than seat something.
@@ -222,7 +267,7 @@ func TestMaxLogoScaleFitsNothingIntoTheSmallestLowSymbols(t *testing.T) {
 	}
 }
 
-func TestMaxLogoScaleFitsNothingIntoAMarginWiderThanAnySymbol(t *testing.T) {
+func TestMaxLogoScaleReportsNothingFitsAMarginWiderThanAnySymbol(t *testing.T) {
 	q := forcedVersion(t, 40, Highest)
 
 	// A margin is clear space paid for out of the same budget as the logo, so

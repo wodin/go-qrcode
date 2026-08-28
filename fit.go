@@ -170,6 +170,17 @@ func (f *logoFit) largestSurvivingWidth(margin int) int {
 	return widest
 }
 
+// smallestScale returns the scale of the narrowest logo there is: one module
+// wide, whatever the margin around it.
+//
+// It is the scale a symbol that fits nothing is judged at, so that "nothing
+// fits" is reported as the ordinary refusal of a real logo — which block ran
+// out of capacity, or which function pattern was buried — rather than as a
+// bare sentence.
+func (f *logoFit) smallestScale() float64 {
+	return 1 / float64(f.symbolSize)
+}
+
 // maxScale returns the largest logo scale, as a fraction of the symbol's
 // width, the symbol survives at margin modules of clear space, or 0 if it
 // survives no logo at all.

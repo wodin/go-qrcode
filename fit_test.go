@@ -248,7 +248,7 @@ func TestBlockBudgetIsHalfTheCorrectionCapacity(t *testing.T) {
 	})
 }
 
-func TestAHigherRecoveryLevelDoesNotAlwaysAcceptALargerLogo(t *testing.T) {
+func TestFitInversionMeansAHigherRecoveryLevelCanAcceptLess(t *testing.T) {
 	// A higher recovery level carries more error correction as a fraction of
 	// the symbol, but splits the symbol into more, smaller blocks — and
 	// correction capacity is held per block, so a block's budget can fall as
@@ -305,7 +305,7 @@ func TestAHigherRecoveryLevelDoesNotAlwaysAcceptALargerLogo(t *testing.T) {
 	// The table is every inversion, not merely eleven of them: a twelfth
 	// appearing means the fit check changed, and the advice built on the table
 	// needs looking at again.
-	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
+	for versionNumber := 1; versionNumber <= maxVersionNumber; versionNumber++ {
 		for i := 0; i+1 < len(everyLevel); i++ {
 			lower := newLogoFit(*getQRCodeVersion(everyLevel[i], versionNumber)).maxScale(1)
 			higher := newLogoFit(*getQRCodeVersion(everyLevel[i+1], versionNumber)).maxScale(1)
