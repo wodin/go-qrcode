@@ -135,3 +135,11 @@ What a knockout costs a symbol: the occluded codewords of every block, and
 any function pattern occlusion. `knockoutDamage` holds it, and a block is
 within its **budget** while it has lost no more than half its correction
 capacity.
+
+**Fit inversion**:
+A pair of symbols where the one carrying *more* error correction — a higher
+recovery level, or a larger version — accepts a *smaller* logo than the other.
+Correction capacity is held per block, so splitting a symbol into more, smaller
+blocks can lower a single block's budget even as the proportion of the symbol
+given to error correction rises.
+_Avoid_: regression, anomaly, non-monotonicity
