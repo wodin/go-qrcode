@@ -681,3 +681,125 @@ func TestARefusedLogoLeavesAnAttachedOneAlone(t *testing.T) {
 		t.Errorf("kept options %+v, want the accepted %+v", q.logoOptions, want)
 	}
 }
+
+func TestSmallestVersionCarryingLogoSkipsTheVersionsThatCarryLess(t *testing.T) {
+	// The version steps between are not a ramp: at the Highest recovery level
+	// and a one module margin, version 2 carries a larger logo than version 3
+	// does, and nothing below version 6 carries a fifth of its width. A
+	// search that stepped upwards until the symbol was "big enough" would
+	// stop at the first of those and be wrong.
+	version, largest := SmallestVersionCarryingLogo(1, Highest, defaultLogoScale,
+		defaultLogoMargin)
+
+	if version != 6 {
+		t.Errorf("the smallest version carrying scale %v is reported as %d, want 6",
+			defaultLogoScale, version)
+	}
+
+	// There is nothing to ask for instead when what was asked for is carried.
+	if largest != 0 {
+		t.Errorf("a carried scale offered %v to ask for instead, want 0", largest)
+	}
+
+	for versionNumber := 1; versionNumber < version; versionNumber++ {
+		if got := forcedVersion(t, versionNumber, Highest).MaxLogoScale(defaultLogoMargin); got >= defaultLogoScale {
+			t.Errorf("version %d carries %v, so it, and not version %d, is the smallest carrying scale %v",
+				versionNumber, got, version, defaultLogoScale)
+		}
+	}
+}
+
+func TestSmallestVersionCarryingLogoNeverLooksBelowTheVersionAskedFrom(t *testing.T) {
+	// The content decides the smallest symbol that will hold it, and a logo
+	// does not get to shrink the symbol below that however well a smaller one
+	// carries the logo. Version 2 at Highest carries 0.12 and version 8 is
+	// the first at or above 8 that does.
+	const scale = 0.12
+
+	if got := forcedVersion(t, 2, Highest).MaxLogoScale(defaultLogoMargin); got < scale {
+		t.Fatalf("version 2 at Highest carries %v, so it no longer stands in for a smaller version that carries scale %v",
+			got, scale)
+	}
+
+	version, _ := SmallestVersionCarryingLogo(8, Highest, scale, defaultLogoMargin)
+
+	if version == 0 {
+		t.Fatalf("no version from 8 up carries scale %v, so nothing was searched", scale)
+	}
+	if version < 8 {
+		t.Errorf("searching from version 8 reported version %d, below the version the content needs",
+			version)
+	}
+}
+
+func TestSmallestVersionCarryingLogoReportsWhatToAskForWhenNoVersionCarriesTheScale(t *testing.T) {
+	version, largest := SmallestVersionCarryingLogo(1, Highest, 0.9, defaultLogoMargin)
+
+	if version != 0 {
+		t.Fatalf("version %d is reported as carrying a scale 0.9 logo", version)
+	}
+	if largest <= 0 {
+		t.Fatalf("no scale was offered to ask for instead, want the largest any version carries")
+	}
+
+	// What is offered is a scale, not a version, because the caller chooses
+	// the scale and this is what turns it into a version: asking for it must
+	// therefore find a version.
+	carrying, _ := SmallestVersionCarryingLogo(1, Highest, largest, defaultLogoMargin)
+
+	if carrying == 0 {
+		t.Fatalf("the scale %v offered to ask for instead is carried by no version", largest)
+	}
+
+	if err := forcedVersion(t, carrying, Highest).SetLogo(testLogo(),
+		LogoOptions{Scale: largest, Margin: defaultLogoMargin}); err != nil {
+
+		t.Errorf("version %d was reported as carrying scale %v, and refused it: %s",
+			carrying, largest, err)
+	}
+}
+
+func TestSmallestVersionCarryingLogoOffersNothingWhenNoVersionCarriesALogo(t *testing.T) {
+	// A margin wider than any symbol's budget leaves nothing for a logo at
+	// any version, so there is neither a version nor a scale to offer — the
+	// same nothing a refusal reports when its own scan finds no remedy.
+	version, largest := SmallestVersionCarryingLogo(1, Highest, defaultLogoScale, 32)
+
+	if version != 0 || largest != 0 {
+		t.Errorf("a 32 module margin reported version %d and scale %v, want nothing carried",
+			version, largest)
+	}
+}
+
+func TestSmallestVersionCarryingLogoIsAskedOnlyForVersionsThereAre(t *testing.T) {
+	for _, from := range []int{0, -1, maxVersionNumber + 1} {
+		version, largest := SmallestVersionCarryingLogo(from, Highest,
+			defaultLogoScale, defaultLogoMargin)
+
+		if version != 0 || largest != 0 {
+			t.Errorf("searching from version %d reported version %d and scale %v, want nothing: there is no such version to search from",
+				from, version, largest)
+		}
+	}
+}
+
+func TestEveryVersionSmallestVersionCarryingLogoNamesAcceptsTheScale(t *testing.T) {
+	for _, level := range everyLevel {
+		for _, margin := range []int{0, 1, 2} {
+			for _, scale := range []float64{0.05, 0.1, 0.15, 0.2, 0.25} {
+				version, _ := SmallestVersionCarryingLogo(1, level, scale, margin)
+				if version == 0 {
+					continue
+				}
+
+				err := forcedVersion(t, version, level).SetLogo(testLogo(),
+					LogoOptions{Scale: scale, Margin: margin})
+
+				if err != nil {
+					t.Errorf("level %d, margin %d: version %d was named as carrying scale %v, and refused it: %s",
+						level, margin, version, scale, err)
+				}
+			}
+		}
+	}
+}

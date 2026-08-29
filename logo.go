@@ -217,6 +217,60 @@ func (q *QRCode) MaxLogoScale(margin int) float64 {
 	return newLogoFit(q.version).maxScale(margin)
 }
 
+// SmallestVersionCarryingLogo returns the smallest version, at or above
+// from, whose symbol at this recovery level accepts a logo of scale with
+// margin modules of clear space around it, and the scale to ask for instead
+// when none of them accepts that one.
+//
+// It is MaxLogoScale asked before there is a symbol to ask about. MaxLogoScale
+// answers what a QR Code already built carries, which leaves the caller who
+// wants a particular size nothing to do but shorten their content until the
+// symbol grows: this answers which symbol to build instead. from is the
+// smallest version it may name, because the content still has to fit — a
+// version below the one the content needs is not on offer however well it
+// carries a logo.
+//
+// The version is 0 when no version from there up carries the scale, and
+// largest is then the largest scale they do carry: a scale rather than a
+// version, because the scale is what the caller chooses and this is what
+// turns it into a version. Otherwise largest is 0. There is nothing to ask
+// for instead when what was asked for is carried, and nothing to ask for
+// either when no version from there up carries a logo of any size, so a zero
+// largest means the same as the zero value of a refusal's remedy: nothing
+// measured is on offer.
+//
+// Every candidate is measured and none is inferred from its neighbour. Around
+// half of all version steps carry a smaller logo than the version below them
+// — a fit inversion (see CONTEXT.md) — so there is no first version above
+// which every version fits, and no arithmetic on the symbol's width that
+// would find one (ADR-0004).
+func SmallestVersionCarryingLogo(from int, level RecoveryLevel, scale float64,
+	margin int) (version int, largest float64) {
+
+	if from < 1 || from > maxVersionNumber {
+		return 0, 0
+	}
+
+	for candidate := from; candidate <= maxVersionNumber; candidate++ {
+		v := getQRCodeVersion(level, candidate)
+		if v == nil {
+			continue
+		}
+
+		carried := newLogoFit(*v).maxScale(margin)
+
+		if carried >= scale {
+			return candidate, 0
+		}
+
+		if carried > largest {
+			largest = carried
+		}
+	}
+
+	return 0, largest
+}
+
 // FitLogo attaches logo to the centre of the QR Code at the largest scale the
 // symbol safely carries, with margin modules of clear space around it.
 //
