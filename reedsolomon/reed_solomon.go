@@ -66,7 +66,7 @@ func Encode(data *bitset.Bitset, numECBytes int) *bitset.Bitset {
 // encodes correctly; it is simply rebuilt per call, as every degree was before.
 const maxCachedGeneratorDegree = 30
 
-// generatorPolyCache memoises rsGeneratorPoly by degree.
+// generatorPolyCache memoises buildRSGeneratorPoly by degree.
 //
 // Every block of a symbol has the same numECBytes, so without this a version 40
 // Highest encode rebuilds one identical degree-30 polynomial 81 times, at
@@ -76,14 +76,20 @@ const maxCachedGeneratorDegree = 30
 // pays for the one polynomial it uses, and importers that never encode pay
 // nothing. Each entry's sync.Once is what keeps Encode safe to call from
 // several goroutines at once, as it has always been.
-var generatorPolyCache [maxCachedGeneratorDegree + 1]cachedGeneratorPoly
+//
+// It is a type rather than a bare variable so that a test can race a fresh
+// instance of its own, certainly cold, instead of emptying the shared one.
+type generatorPolyCache [maxCachedGeneratorDegree + 1]cachedGeneratorPoly
 
-// cachedGeneratorPoly is one entry of generatorPolyCache: a generator
+// cachedGeneratorPoly is one entry of a generatorPolyCache: a generator
 // polynomial and the sync.Once that builds it on first use.
 type cachedGeneratorPoly struct {
 	once sync.Once
 	poly gfPoly
 }
+
+// generators holds the generator polynomials built by this process.
+var generators generatorPolyCache
 
 // rsGeneratorPoly returns the Reed-Solomon generator polynomial with |degree|.
 func rsGeneratorPoly(degree int) gfPoly {
@@ -91,11 +97,18 @@ func rsGeneratorPoly(degree int) gfPoly {
 		log.Panic("degree < 2")
 	}
 
+	return generators.get(degree)
+}
+
+// get returns the generator polynomial with |degree|, building it on the first
+// call to ask for it. A degree past the end of the table is built afresh every
+// time, as every degree was before the table existed.
+func (c *generatorPolyCache) get(degree int) gfPoly {
 	if degree > maxCachedGeneratorDegree {
 		return buildRSGeneratorPoly(degree)
 	}
 
-	cached := &generatorPolyCache[degree]
+	cached := &c[degree]
 	cached.once.Do(func() {
 		cached.poly = buildRSGeneratorPoly(degree)
 	})

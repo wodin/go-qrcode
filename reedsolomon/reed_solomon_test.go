@@ -143,21 +143,14 @@ func TestGeneratorPolyCacheMatchesFreshBuild(t *testing.T) {
 	}
 }
 
-// forgetCachedGeneratorPoly empties one entry of the cache, so a test that
-// wants to race the fill itself starts from a cold table however many earlier
-// tests in this process have already warmed it.
+// TestGeneratorPolyConcurrent races the fill itself: several goroutines ask one
+// cold cache for the same degrees at once. Under `go test -race` this is what
+// shows the memoisation has not cost the package the concurrency safety it has
+// always had.
 //
-// It writes package state unsynchronised, which is safe only because Go runs a
-// package's tests one at a time. No test in this file may call t.Parallel.
-func forgetCachedGeneratorPoly(degree int) {
-	generatorPolyCache[degree].once = sync.Once{}
-	generatorPolyCache[degree].poly = gfPoly{}
-}
-
-// TestGeneratorPolyConcurrent races the fill itself: several goroutines ask for
-// the same cold degrees at once. Under `go test -race` this is what shows the
-// memoisation has not cost the package the concurrency safety it has always
-// had.
+// The cache is an instance of the test's own rather than the package's, so the
+// fill is certainly cold however many earlier tests have warmed the shared one,
+// and racing it writes no package state.
 func TestGeneratorPolyConcurrent(t *testing.T) {
 	// Every degree the table holds, and one past its end so the uncached path
 	// is raced too.
@@ -165,17 +158,15 @@ func TestGeneratorPolyConcurrent(t *testing.T) {
 
 	for degree := 2; degree < len(want); degree++ {
 		want[degree] = buildRSGeneratorPoly(degree)
-
-		if degree <= maxCachedGeneratorDegree {
-			forgetCachedGeneratorPoly(degree)
-		}
 	}
+
+	var cache generatorPolyCache
 
 	failures := runConcurrently(func() []string {
 		var failures []string
 
 		for degree := 2; degree < len(want); degree++ {
-			generator := rsGeneratorPoly(degree)
+			generator := cache.get(degree)
 
 			if !generator.equals(want[degree]) {
 				failures = append(failures, fmt.Sprintf("degree=%d generator=%s, want %s",
@@ -195,6 +186,10 @@ func TestGeneratorPolyConcurrent(t *testing.T) {
 // the level the package actually exposes: Encode, called from several
 // goroutines at once, over one shared input it must not disturb. Run under
 // `go test -race`.
+//
+// The cold fill is raced by TestGeneratorPolyConcurrent above; by the time this
+// runs the shared cache may hold any degree already, which is the state a
+// long-lived program calls Encode in.
 func TestEncodeConcurrent(t *testing.T) {
 	const numECBytes = 5
 
@@ -203,8 +198,6 @@ func TestEncodeConcurrent(t *testing.T) {
 	want := bitset.NewFromBase2String(
 		"01000000 00011000 10101100 11000011 00000000 10000110 00001101 " +
 			"00100010 10101110 00110000")
-
-	forgetCachedGeneratorPoly(numECBytes)
 
 	failures := runConcurrently(func() []string {
 		result := Encode(data, numECBytes)

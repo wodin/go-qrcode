@@ -156,3 +156,33 @@ func TestNumBitsToPadToCodeoword(t *testing.T) {
 		}
 	}
 }
+
+// TestMaxErrorCodewordsPerBlock pins the bound the reedsolomon package sizes its
+// generator polynomial cache to.
+//
+// reedsolomon.maxCachedGeneratorDegree is 30 on the authority of ISO/IEC 18004
+// table 9, and nothing in that package can check the claim: qrcode imports
+// reedsolomon, not the other way round, so this table is the only statement of
+// the spec's error correction sizes either package can reach.
+//
+// A wrong bound is otherwise invisible. Every symbol would still encode
+// identically — a degree past the end of the cache is built afresh and encodes
+// correctly — the degrees past it would simply rebuild their polynomial once
+// per block again, failing no test and changing no output.
+func TestMaxErrorCodewordsPerBlock(t *testing.T) {
+	// Kept in step by hand with reedsolomon.maxCachedGeneratorDegree, which is
+	// unexported and should stay that way: it sizes a cache, and no caller of
+	// the package has any business reading it.
+	const maxCachedGeneratorDegree = 30
+
+	for _, v := range versions {
+		for _, shape := range blockShapes(v) {
+			if shape.numErrorCodewords() > maxCachedGeneratorDegree {
+				t.Errorf("version %d level %d: %d error correction codewords per "+
+					"block, past the %d reedsolomon caches a generator polynomial for",
+					v.version, v.level, shape.numErrorCodewords(),
+					maxCachedGeneratorDegree)
+			}
+		}
+	}
+}
