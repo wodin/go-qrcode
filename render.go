@@ -53,6 +53,11 @@ func (s moduleScale) pixelsOfSymbolModules(first modulePosition,
 	return image.Rect(left, top, right, bottom)
 }
 
+// pixelsOfModule returns the pixels drawing the single symbol module at p.
+func (s moduleScale) pixelsOfModule(p modulePosition) image.Rectangle {
+	return s.pixelsOfSymbolModules(p, modulePosition{x: p.x + 1, y: p.y + 1})
+}
+
 // pixelsOf returns the half-open range of pixels drawing the half-open range
 // of modules [first, last), clamped to the image.
 //

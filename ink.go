@@ -46,16 +46,10 @@ func newInk(logo image.Image, seat image.Rectangle, within knockout,
 		inked:  make([]bool, within.width()*within.width()),
 	}
 
-	for y := within.min.y; y < within.max.y; y++ {
-		for x := within.min.x; x < within.max.x; x++ {
-			module := scale.pixelsOfSymbolModules(
-				modulePosition{x: x, y: y},
-				modulePosition{x: x + 1, y: y + 1})
-
-			inked.set(modulePosition{x: x, y: y},
-				anyPixelInked(logo, module.Intersect(seat), seat.Min))
-		}
-	}
+	within.eachModule(func(p modulePosition) {
+		inked.set(p, anyPixelInked(logo,
+			scale.pixelsOfModule(p).Intersect(seat), seat.Min))
+	})
 
 	return inked
 }
@@ -95,9 +89,7 @@ func (i *ink) set(p modulePosition, inked bool) {
 // offsetOf returns p's index into inked, and whether p lies inside the
 // knockout at all.
 func (i ink) offsetOf(p modulePosition) (int, bool) {
-	if p.x < i.within.min.x || p.x >= i.within.max.x ||
-		p.y < i.within.min.y || p.y >= i.within.max.y {
-
+	if !i.within.contains(p) {
 		return 0, false
 	}
 
@@ -117,15 +109,9 @@ func (i ink) dilated(margin int) ink {
 		inked:  make([]bool, len(i.inked)),
 	}
 
-	for y := i.within.min.y; y < i.within.max.y; y++ {
-		for x := i.within.min.x; x < i.within.max.x; x++ {
-			p := modulePosition{x: x, y: y}
-
-			if i.nearInk(p, margin) {
-				grown.set(p, true)
-			}
-		}
-	}
+	i.within.eachModule(func(p modulePosition) {
+		grown.set(p, i.nearInk(p, margin))
+	})
 
 	return grown
 }
@@ -149,18 +135,10 @@ func (i ink) nearInk(p modulePosition, margin int) bool {
 // inked set is not a rectangle, and the modules it leaves out are the ones a
 // decoder gets to read.
 func (i ink) fill(dst draw.Image, src image.Image, scale moduleScale) {
-	for y := i.within.min.y; y < i.within.max.y; y++ {
-		for x := i.within.min.x; x < i.within.max.x; x++ {
-			p := modulePosition{x: x, y: y}
-
-			if !i.covers(p) {
-				continue
-			}
-
-			draw.Draw(dst,
-				scale.pixelsOfSymbolModules(p,
-					modulePosition{x: x + 1, y: y + 1}),
-				src, image.Point{}, draw.Src)
+	i.within.eachModule(func(p modulePosition) {
+		if i.covers(p) {
+			draw.Draw(dst, scale.pixelsOfModule(p), src, image.Point{},
+				draw.Src)
 		}
-	}
+	})
 }

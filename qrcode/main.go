@@ -201,14 +201,11 @@ func fitLogo(q *qrcode.QRCode, path string, clearing qrcode.ClearingStyle,
 	// seating a logo changes.
 	scale := q.MaxLogoScale(logoMargin)
 
-	// The clearing is a rendering choice rather than a size, so FitLogo does
-	// not take one. Seating the same logo again at the scale it chose is what
-	// carries it through — and cannot be refused, since the scale is one the
-	// symbol has just accepted.
-	if clearing != qrcode.ClearKnockout {
-		if err := seatLogo(q, logo, scale, clearing); err != nil {
-			return err
-		}
+	// FitLogo chooses a size, not a clearing, so the logo is seated once more
+	// with the one the caller asked for. At the default clearing that seats
+	// exactly what FitLogo seated, which is why there is no branch here.
+	if err := seatLogo(q, logo, scale, clearing); err != nil {
+		return err
 	}
 
 	_, err = fmt.Fprintf(stderr, "logo scaled to %.4f of the QR Code's width, "+
@@ -351,12 +348,11 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return misuse(flags, "Error: no content given")
 	}
 
-	if *logoFile == "" && isSet(flags, "logo-scale") {
-		return misuse(flags, "-logo-scale needs a logo: pass -L <file>")
-	}
-
-	if *logoFile == "" && isSet(flags, "logo-clearing") {
-		return misuse(flags, "-logo-clearing needs a logo: pass -L <file>")
+	// Every flag that describes a logo needs one to describe.
+	for _, name := range []string{"logo-scale", "logo-clearing"} {
+		if *logoFile == "" && isSet(flags, name) {
+			return misuse(flags, "-"+name+" needs a logo: pass -L <file>")
+		}
 	}
 
 	clearing, known := clearingStyles[*logoClearing]

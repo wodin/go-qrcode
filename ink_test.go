@@ -122,7 +122,7 @@ func TestInkCoversEveryModuleTheLogoTouches(t *testing.T) {
 			y: (k.min.y + k.max.y - 1) / 2,
 		}
 
-		return within(k, p) && (p.x == centre.x || p.y == centre.y)
+		return k.contains(p) && (p.x == centre.x || p.y == centre.y)
 	})
 }
 
@@ -152,7 +152,7 @@ func TestInkCountsAnyNonZeroAlphaAsInk(t *testing.T) {
 	k := knockoutOfWidth(inkTestSymbolSize, width)
 
 	assertInk(t, seatedInk(t, barelyThere, width), func(p modulePosition) bool {
-		return within(k, p)
+		return k.contains(p)
 	})
 }
 
@@ -194,13 +194,8 @@ func TestClearingNeverReachesOutsideTheKnockout(t *testing.T) {
 	got := seatedInk(t, solid, width).dilated(width)
 
 	assertInk(t, got, func(p modulePosition) bool {
-		return within(k, p)
+		return k.contains(p)
 	})
-}
-
-// within reports whether the module at p lies inside the knockout k.
-func within(k knockout, p modulePosition) bool {
-	return p.x >= k.min.x && p.x < k.max.x && p.y >= k.min.y && p.y < k.max.y
 }
 
 // abs returns the absolute value of n.

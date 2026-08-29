@@ -229,20 +229,16 @@ func TestDecodeWithLogo(t *testing.T) {
 // standing under the mark's transparent regions have to be modules a real
 // decoder reads, not merely modules the renderer did not paint over.
 //
-// These combinations are not the whole table, and deliberately so. Clearing
-// the ink is measurably harder for a scanner to *find* than clearing the
-// square — around one combination in twenty does not read at the largest
-// accepted scale, at any pixel pitch — because a mark abutting live modules
-// gives a locator more edges to resolve. That is a legibility cost the
-// codeword budget does not model, it is why the clearing is opt-in, and it is
-// recorded in ADR-0008 rather than hidden here.
+// The sweep is the one TestDecodeWithLogo runs, less the symbols named in
+// unreadableInkClearings — which are named rather than quietly left out,
+// because what they are is the measurement, not a trim.
 func TestDecodeWithInkClearedLogo(t *testing.T) {
 	if !*testDecode {
 		t.Skip("Decode tests not enabled")
 	}
 
 	onAnAlignmentPattern := []int{7, 10, 21, 35, 38}
-	clearOfOne := []int{1, 5, 20, 40}
+	clearOfOne := []int{1, 5, 14, 20, 40}
 
 	assertCentresAreOnAlignmentPatterns(t, onAnAlignmentPattern, true)
 	assertCentresAreOnAlignmentPatterns(t, clearOfOne, false)
@@ -251,9 +247,43 @@ func TestDecodeWithInkClearedLogo(t *testing.T) {
 
 	for _, versionNumber := range append(onAnAlignmentPattern, clearOfOne...) {
 		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+			symbol := versionAndLevel{versionNumber, level}
+
+			if unreadableInkClearings[symbol] {
+				t.Logf("v%d level %d: not asserted, see unreadableInkClearings",
+					versionNumber, level)
+				continue
+			}
+
 			decodeWithLargestLogo(t, logo, versionNumber, level, ClearInk)
 		}
 	}
+}
+
+// versionAndLevel names one symbol of the decode sweep.
+type versionAndLevel struct {
+	versionNumber int
+	level         RecoveryLevel
+}
+
+// unreadableInkClearings are the symbols of TestDecodeWithInkClearedLogo's
+// sweep that zbarimg does not find at all with the ink cleared, and does find
+// with the knockout cleared, at the largest scale each accepts.
+//
+// They are the feature's cost made concrete. Clearing the ink is measurably
+// harder for a scanner to *locate* than clearing the square, because a mark
+// abutting live modules gives a locator more edges to resolve — around one
+// combination in twenty of the whole table, at every scale and every pixel
+// pitch, so no budget headroom buys it back. That is a legibility cost the
+// codeword count cannot see, it is why the clearing is opt-in, and ADR-0008
+// records the measurement behind it.
+//
+// The set belongs to a decoder rather than to this package, so another
+// zbarimg may not agree about its membership. It is therefore a list of
+// symbols not asserted over, never one asserted to fail: a symbol that starts
+// reading back is not a regression.
+var unreadableInkClearings = map[versionAndLevel]bool{
+	{14, Highest}: true,
 }
 
 // decodeWithLargestLogo attaches logo to a symbol of the given version and

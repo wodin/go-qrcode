@@ -18,13 +18,15 @@ import (
 // outwards to the next module and make the reported maximum unusable.
 const moduleSnapTolerance = 1e-9
 
-// knockout is the square of modules cleared to background colour to seat a
-// logo: the logo itself plus its surrounding margin, snapped outwards to
-// whole modules.
+// knockout is the square of modules charged against the correction capacity
+// to seat a logo: the logo itself plus its surrounding margin, snapped
+// outwards to whole modules.
 //
 // It is the knockout, not the logo's own extent, that counts as damage — a
 // module the logo only partly covers is read just as wrongly as one it covers
-// entirely (ADR-0001).
+// entirely (ADR-0001). Nor is it necessarily what a render clears:
+// LogoOptions.Clearing can narrow that to the modules the logo inks, and the
+// charge stays the whole square either way (ADR-0008).
 type knockout struct {
 	// min is the top left module of the square; max is one past its bottom
 	// right, in the same module coordinates as symbol's get and set.
@@ -74,6 +76,21 @@ func knockoutOfWidth(symbolSize int, width int) knockout {
 // width returns the knockout's width in modules.
 func (k knockout) width() int {
 	return k.max.x - k.min.x
+}
+
+// contains reports whether the module at p lies within k.
+func (k knockout) contains(p modulePosition) bool {
+	return p.x >= k.min.x && p.x < k.max.x &&
+		p.y >= k.min.y && p.y < k.max.y
+}
+
+// eachModule calls visit with every module of k, row by row.
+func (k knockout) eachModule(visit func(p modulePosition)) {
+	for y := k.min.y; y < k.max.y; y++ {
+		for x := k.min.x; x < k.max.x; x++ {
+			visit(modulePosition{x: x, y: y})
+		}
+	}
 }
 
 // clip returns the part of k lying within a symbolSize module symbol.
