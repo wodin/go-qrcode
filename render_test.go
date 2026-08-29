@@ -574,3 +574,203 @@ func TestARenderedQRCodeSurvivesAsALogo(t *testing.T) {
 			"detail was sampled away rather than averaged in")
 	}
 }
+
+// logoGeometry returns the knockout q's logo sits in, and the scale mapping
+// modules to the pixels of an image imageWidth pixels across.
+//
+// q must already have been rendered: the symbol these are measured from is
+// built at render time.
+func logoGeometry(t *testing.T, q *QRCode, imageWidth int) (knockout, moduleScale) {
+	t.Helper()
+
+	if q.symbol == nil {
+		t.Fatal("the QR Code has not been rendered, so it has no symbol to measure")
+	}
+
+	return newKnockout(q.symbol.symbolSize, q.logoOptions.Scale,
+			q.logoOptions.Margin),
+		newModuleScale(imageWidth, q.symbol.size, q.symbol.quietZoneSize)
+}
+
+// differingPixels counts the pixels of in where a and b disagree.
+func differingPixels(a image.Image, b image.Image, in image.Rectangle) int {
+	differing := 0
+
+	for y := in.Min.Y; y < in.Max.Y; y++ {
+		for x := in.Min.X; x < in.Max.X; x++ {
+			if rgbaAt(a, x, y) != rgbaAt(b, x, y) {
+				differing++
+			}
+		}
+	}
+
+	return differing
+}
+
+// clearingRenders holds one symbol rendered three ways — carrying no logo, and
+// carrying the same logo under each clearing style — with the knockout and
+// scale all three share.
+type clearingRenders struct {
+	plain image.Image
+	whole image.Image
+	inked image.Image
+
+	knockout knockout
+	scale    moduleScale
+}
+
+// renderEachClearing renders logo at options both ways, alongside the bare
+// symbol, so that a test can say what the ink clearing changed and what it did
+// not.
+func renderEachClearing(t *testing.T, versionNumber int, logo image.Image,
+	options LogoOptions, pixelsPerModule int) clearingRenders {
+
+	t.Helper()
+
+	options.Clearing = ClearKnockout
+	whole := qrCodeWithLogo(t, versionNumber, Highest, logo, options)
+
+	options.Clearing = ClearInk
+	inked := qrCodeWithLogo(t, versionNumber, Highest, logo, options)
+
+	renders := clearingRenders{
+		plain: forcedVersion(t, versionNumber, Highest).Image(-pixelsPerModule),
+		whole: whole.Image(-pixelsPerModule),
+		inked: inked.Image(-pixelsPerModule),
+	}
+
+	renders.knockout, renders.scale = logoGeometry(t, inked,
+		renders.inked.Bounds().Dx())
+
+	return renders
+}
+
+// halfTransparentLogo is the mark the ink clearing tests are written against:
+// its left half is opaque and its right half is not there at all, so the
+// modules under the right half are the ones an ink clearing restores.
+func halfTransparentLogo() image.Image {
+	return splitLogo(color.NRGBA{B: 255, A: 255}, color.NRGBA{}, 64, 64)
+}
+
+// inkClearingOptions are the options the ink clearing tests render at: version
+// 10 at Highest carries 0.2632 with a one module margin, and 0.26 is where the
+// issue measured contiguous negative space coming back.
+func inkClearingOptions() LogoOptions {
+	options := DefaultLogoOptions()
+	options.Scale = 0.26
+
+	return options
+}
+
+func TestClearInkLeavesTheModulesUnderTransparentRegions(t *testing.T) {
+	const (
+		pixelsPerModule = 8
+		versionNumber   = 10
+	)
+
+	renders := renderEachClearing(t, versionNumber, halfTransparentLogo(),
+		inkClearingOptions(), pixelsPerModule)
+
+	k, scale := renders.knockout, renders.scale
+
+	// The right-hand columns of the knockout, clear of the opaque half and of
+	// the margin dilated around it. The logo puts no ink here at all, so an
+	// ink clearing must leave every module standing.
+	centre := (k.min.x + k.max.x - 1) / 2
+	restored := scale.pixelsOfSymbolModules(
+		modulePosition{x: centre + 3, y: k.min.y},
+		modulePosition{x: k.max.x, y: k.max.y})
+
+	if lost := differingPixels(renders.inked, renders.plain, restored); lost != 0 {
+		t.Errorf("clearing the ink changed %d pixels under the logo's "+
+			"transparent half, want the modules there left alone", lost)
+	}
+
+	// Without this the test would pass just as well on a region of the symbol
+	// that happens to carry nothing.
+	if blanked := differingPixels(renders.whole, renders.plain, restored); blanked == 0 {
+		t.Fatal("clearing the whole knockout changed nothing there either, " +
+			"so the region tested carries no module to restore")
+	}
+}
+
+func TestClearInkStillClearsTheMarginAroundEveryStroke(t *testing.T) {
+	const (
+		pixelsPerModule = 8
+		versionNumber   = 10
+	)
+
+	options := inkClearingOptions()
+	renders := renderEachClearing(t, versionNumber, halfTransparentLogo(),
+		options, pixelsPerModule)
+
+	k, scale := renders.knockout, renders.scale
+
+	// The last module the logo inks: the opaque half ends inside it, and
+	// resampling leaves it part opaque, which is ink like any other.
+	opaque := extentOf(t, renders.inked, color.RGBA{B: 255, A: 255})
+	lastInked := scale.moduleAt(opaque.Max.X) - scale.quietZoneSize
+
+	// The margin's job is local to the stroke, so it is these columns — not a
+	// ring around the knockout — that stay cleared (ADR-0008).
+	margin := scale.pixelsOfSymbolModules(
+		modulePosition{x: lastInked + 1, y: k.min.y},
+		modulePosition{x: lastInked + 1 + options.Margin, y: k.max.y})
+
+	background := rgbaAt(renders.plain, 0, 0)
+
+	for y := margin.Min.Y; y < margin.Max.Y; y++ {
+		for x := margin.Min.X; x < margin.Max.X; x++ {
+			if got := rgbaAt(renders.inked, x, y); got != background {
+				t.Fatalf("the module at (%d,%d), %d module(s) past the "+
+					"logo's ink, is %+v, want the background %+v",
+					x, y, x-margin.Min.X+1, got, background)
+			}
+		}
+	}
+
+	if kept := differingPixels(renders.inked, renders.plain, margin); kept == 0 {
+		t.Fatal("the margin columns carry no module the clearing had to " +
+			"blank, so the test proves nothing")
+	}
+
+	// And no further: the margin is a width, so the column past it is a
+	// module the decoder gets to read.
+	beyond := scale.pixelsOfSymbolModules(
+		modulePosition{x: lastInked + 1 + options.Margin, y: k.min.y},
+		modulePosition{x: lastInked + 2 + options.Margin, y: k.max.y})
+
+	if lost := differingPixels(renders.inked, renders.plain, beyond); lost != 0 {
+		t.Errorf("the column %d modules past the logo's ink changed in %d "+
+			"pixels, want the margin to have stopped short of it",
+			options.Margin+1, lost)
+	}
+}
+
+func TestAnOpaqueLogoRendersTheSameWhicheverClearingIsAsked(t *testing.T) {
+	const pixelsPerModule = 6
+
+	// An opaque logo inks every module of its knockout, so dilating and
+	// clipping the inked set gives the knockout back. This is the regression
+	// that would otherwise go unnoticed: every existing caller is here.
+	logo := solidLogo(color.RGBA{R: 255, A: 255}, 64, 64)
+
+	for _, versionNumber := range []int{6, 10, 25} {
+		for _, margin := range []int{0, 1, 3} {
+			options := DefaultLogoOptions()
+			options.Margin = margin
+			options.Scale = 0.15
+
+			renders := renderEachClearing(t, versionNumber, logo, options,
+				pixelsPerModule)
+
+			if differing := differingPixels(renders.inked, renders.whole,
+				renders.inked.Bounds()); differing != 0 {
+
+				t.Errorf("v%d margin=%d: clearing the ink of an opaque logo "+
+					"changed %d pixels, want an identical image",
+					versionNumber, margin, differing)
+			}
+		}
+	}
+}

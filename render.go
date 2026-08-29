@@ -73,8 +73,14 @@ func (s moduleScale) firstPixelOf(module int) int {
 	})
 }
 
-// withLogo returns rendered with the attached logo seated in it: the knockout
-// cleared to the background colour, and the logo drawn over that.
+// withLogo returns rendered with the attached logo seated in it: the modules
+// LogoOptions.Clearing names cleared to the background colour, and the logo
+// drawn over them.
+//
+// What is cleared is not what was charged. The whole knockout is charged
+// against the error correction budget whichever clearing is asked for, so
+// clearing only the ink leaves the symbol less damaged than the fit paid for
+// — the one direction of that asymmetry which is safe (ADR-0008).
 //
 // The result is full colour. A logo does not fit the two colour palette that
 // keeps a plain QR Code's PNG small, so a symbol carrying one gives that
@@ -88,19 +94,30 @@ func (q *QRCode) withLogo(rendered *image.Paletted,
 	k := newKnockout(q.symbol.symbolSize, q.logoOptions.Scale,
 		q.logoOptions.Margin)
 
-	cleared := scale.pixelsOfSymbolModules(k.min, k.max)
-	draw.Draw(img, cleared, image.NewUniform(q.BackgroundColor),
-		image.Point{}, draw.Src)
+	knockedOut := scale.pixelsOfSymbolModules(k.min, k.max)
 
-	seat := q.logoSeat(k, cleared, scale)
-	draw.Draw(img, seat, resample(q.logo, seat.Dx(), seat.Dy()),
-		image.Point{}, draw.Over)
+	seat := q.logoSeat(k, knockedOut, scale)
+	logo := resample(q.logo, seat.Dx(), seat.Dy())
+
+	background := image.NewUniform(q.BackgroundColor)
+
+	// The resampled logo, rather than the caller's own image, so that what is
+	// cleared and what is drawn cannot disagree (ADR-0008).
+	if q.logoOptions.Clearing == ClearInk {
+		newInk(logo, seat, k, scale).
+			dilated(q.logoOptions.Margin).
+			fill(img, background, scale)
+	} else {
+		draw.Draw(img, knockedOut, background, image.Point{}, draw.Src)
+	}
+
+	draw.Draw(img, seat, logo, image.Point{}, draw.Over)
 
 	return img
 }
 
 // logoSeat returns the pixels the logo itself is drawn into, given the
-// knockout k cleared for it and the pixels cleared covers.
+// knockout k charged for it and the pixels knockedOut covers.
 //
 // The logo is drawn the fraction of the symbol's width that
 // LogoOptions.Scale promises rather than stretched to fill the knockout. The
@@ -114,7 +131,7 @@ func (q *QRCode) withLogo(rendered *image.Paletted,
 // logo asked for, but taking it this way means a seat that rounds outwards
 // still rounds inside the area cleared for it rather than into the modules
 // beyond.
-func (q *QRCode) logoSeat(k knockout, cleared image.Rectangle,
+func (q *QRCode) logoSeat(k knockout, knockedOut image.Rectangle,
 	scale moduleScale) image.Rectangle {
 
 	margin := q.logoOptions.Margin
@@ -131,7 +148,7 @@ func (q *QRCode) logoSeat(k knockout, cleared image.Rectangle,
 		side = 1
 	}
 
-	return fitted(centredIn(cleared, side, side), q.logo.Bounds())
+	return fitted(centredIn(knockedOut, side, side), q.logo.Bounds())
 }
 
 // fitted returns the largest rectangle of source's aspect ratio that fits

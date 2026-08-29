@@ -3,7 +3,10 @@
 
 package qrcode
 
-import "image"
+import (
+	"image"
+	"image/draw"
+)
 
 // ink is the set of modules a logo's pixels cover, within the knockout
 // seating it.
@@ -138,4 +141,26 @@ func (i ink) nearInk(p modulePosition, margin int) bool {
 	}
 
 	return false
+}
+
+// fill paints every module of the ink into dst with src, a module at a time.
+//
+// Per module rather than per rectangle because that is the whole point: an
+// inked set is not a rectangle, and the modules it leaves out are the ones a
+// decoder gets to read.
+func (i ink) fill(dst draw.Image, src image.Image, scale moduleScale) {
+	for y := i.within.min.y; y < i.within.max.y; y++ {
+		for x := i.within.min.x; x < i.within.max.x; x++ {
+			p := modulePosition{x: x, y: y}
+
+			if !i.covers(p) {
+				continue
+			}
+
+			draw.Draw(dst,
+				scale.pixelsOfSymbolModules(p,
+					modulePosition{x: x + 1, y: y + 1}),
+				src, image.Point{}, draw.Src)
+		}
+	}
 }

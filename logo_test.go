@@ -820,3 +820,86 @@ func TestSmallestVersionCarryingLogoLeavesAScaleThatIsNoFractionToSetLogo(t *tes
 		}
 	}
 }
+
+func TestClearingTheWholeKnockoutIsTheDefault(t *testing.T) {
+	// Not a bug fix: a caller already placing a transparent logo has
+	// background where the ink clearing would put live modules, and their
+	// mark was designed against that. They have to ask (ADR-0008).
+	if got := DefaultLogoOptions().Clearing; got != ClearKnockout {
+		t.Errorf("DefaultLogoOptions().Clearing = %v, want ClearKnockout", got)
+	}
+
+	if got := (LogoOptions{}).Clearing; got != ClearKnockout {
+		t.Errorf("the zero LogoOptions clears %v, want ClearKnockout", got)
+	}
+}
+
+// TestClearingDoesNotMoveTheFit pins the asymmetry the whole feature rests on:
+// the knockout is charged whichever clearing is asked for, so a logo is
+// accepted or refused identically either way and MaxLogoScale reports what it
+// always reported (ADR-0008).
+//
+// It is the fit's blindness to the image that keeps this true, so the logo
+// used is a wholly transparent one, which inks nothing at all: were the charge
+// to follow the ink rather than the knockout, every one of these scales would
+// be accepted.
+func TestClearingDoesNotMoveTheFit(t *testing.T) {
+	logo := testLogo()
+
+	for _, versionNumber := range []int{1, 6, 10, 25, 40} {
+		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+			for _, margin := range []int{0, 1, 3} {
+				q := forcedVersion(t, versionNumber, level)
+				maxScale := q.MaxLogoScale(margin)
+
+				for _, scale := range []float64{0.05, 0.1, 0.2, 0.3, 0.5} {
+					assertSameVerdict(t, q, logo, LogoOptions{
+						Scale: scale, Margin: margin,
+					})
+				}
+
+				if got := q.MaxLogoScale(margin); got != maxScale {
+					t.Fatalf("v%d level %d margin %d: MaxLogoScale = %v after "+
+						"seating logos, was %v", versionNumber, level, margin,
+						got, maxScale)
+				}
+			}
+		}
+	}
+}
+
+// assertSameVerdict fails the test unless SetLogo says the same thing about
+// options under both clearing styles, word for word.
+func assertSameVerdict(t *testing.T, q *QRCode, logo image.Image,
+	options LogoOptions) {
+
+	t.Helper()
+
+	options.Clearing = ClearKnockout
+	whole := q.SetLogo(logo, options)
+
+	options.Clearing = ClearInk
+	inked := q.SetLogo(logo, options)
+
+	if (whole == nil) != (inked == nil) {
+		t.Fatalf("v%d level %d scale %v margin %d: clearing the knockout %s "+
+			"and clearing the ink %s", q.VersionNumber, q.Level, options.Scale,
+			options.Margin, accepted(whole), accepted(inked))
+	}
+
+	if whole != nil && whole.Error() != inked.Error() {
+		t.Fatalf("v%d level %d scale %v margin %d: refused with %q when "+
+			"clearing the knockout and %q when clearing the ink",
+			q.VersionNumber, q.Level, options.Scale, options.Margin,
+			whole, inked)
+	}
+}
+
+// accepted describes a SetLogo verdict for a failure message.
+func accepted(err error) string {
+	if err == nil {
+		return "accepted it"
+	}
+
+	return "refused it"
+}

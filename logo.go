@@ -15,6 +15,34 @@ const (
 	defaultLogoMargin = 1
 )
 
+// ClearingStyle says which modules of the knockout a render blanks to the
+// background colour before drawing the logo over them.
+//
+// It never changes what the logo costs. The knockout is charged against the
+// error correction budget whichever style is chosen, so clearing less than
+// all of it can only leave a symbol less damaged than the fit paid for
+// (ADR-0008), and MaxLogoScale answers the same either way.
+type ClearingStyle int
+
+const (
+	// ClearKnockout blanks the whole knockout square. It is the zero value,
+	// and so what a caller who says nothing gets: leaving a transparent
+	// logo's holes filled with background is a design decision, and changing
+	// it under someone already placing one would redesign their mark.
+	ClearKnockout ClearingStyle = iota
+
+	// ClearInk blanks only the modules the logo's ink covers, dilated by
+	// Margin, so that the modules under a logo's transparent regions survive
+	// and a decoder reads them. Any alpha above zero counts as ink.
+	//
+	// It buys nothing for an opaque logo, which inks every module of its
+	// knockout, and little for a compact mark: a codeword threads eight
+	// modules through the region and is damaged in full by any one of them,
+	// so a hole only pays where it leaves whole codewords untouched. A thin
+	// mark with space between its strokes is what this is for.
+	ClearInk
+)
+
 // LogoOptions says how large a logo is and how much clear space surrounds it.
 type LogoOptions struct {
 	// Scale is the logo's width as a fraction of the symbol's width. The
@@ -27,6 +55,11 @@ type LogoOptions struct {
 	// boundary and corrupting modules the logo does not cover, and it is
 	// charged against the error correction budget along with the logo itself.
 	Margin int
+
+	// Clearing says which modules of the knockout are blanked to the
+	// background colour before the logo is drawn over them. The zero value,
+	// ClearKnockout, blanks all of them.
+	Clearing ClearingStyle
 }
 
 // DefaultLogoOptions returns the options a logo is attached with unless the
