@@ -82,6 +82,12 @@ Usage:
 
        qrcode -L logo.png -logo-scale 0.15 "https://example.org/spring-sale" > out.png
 
+  4. Ask for the symbol the logo needs, rather than the one the content's
+     length chose. -grow-symbol encodes at the smallest version that carries
+     the scale asked for, and reports the version on stderr:
+
+       qrcode -L logo.png -logo-scale 0.2 -grow-symbol "https://example.org" > out.png
+
 `)
 }
 
@@ -108,6 +114,12 @@ func isSet(flags *flag.FlagSet, name string) bool {
 
 	return given
 }
+
+// logoMargin is the clear space the tool keeps around every logo it attaches,
+// in modules, and there is no flag for it. The margin is what stops a
+// scanner's binarizer smearing the logo's edge into the modules beside it: it
+// is a safety property rather than a size knob (#16).
+var logoMargin = qrcode.DefaultLogoOptions().Margin
 
 // attachLogo reads the image in the file named by path and places it in the
 // centre of q, scale of the symbol's width wide.
@@ -138,9 +150,7 @@ func fitLogo(q *qrcode.QRCode, path string, stderr io.Writer) error {
 		return err
 	}
 
-	margin := qrcode.DefaultLogoOptions().Margin
-
-	if err := q.FitLogo(logo, margin); err != nil {
+	if err := q.FitLogo(logo, logoMargin); err != nil {
 		return err
 	}
 
@@ -149,9 +159,73 @@ func fitLogo(q *qrcode.QRCode, path string, stderr io.Writer) error {
 	// seating a logo changes.
 	_, err = fmt.Fprintf(stderr, "logo scaled to %.4f of the QR Code's width, "+
 		"the largest a version %d symbol accepts with a %d module margin\n",
-		q.MaxLogoScale(margin), q.VersionNumber, margin)
+		q.MaxLogoScale(logoMargin), q.VersionNumber, logoMargin)
 
 	return err
+}
+
+// grownSymbol returns q re-encoded at the smallest version whose symbol
+// carries a logo of scale, or q itself when the version the content chose
+// already carries one, noting any growth on stderr.
+//
+// This is what -grow-symbol does, and the version is the only lever there is
+// over the size of a logo: what a symbol carries follows from its version,
+// recovery level and margin and never from the content, and the tool fixes
+// the level at Highest and the margin at one module. Without it the content's
+// length decides the version and so caps the logo — 22 characters make a
+// version 3 symbol, which carries 0.1034 however large a logo was asked for
+// (#16).
+//
+// The version is never lowered. A smaller symbol may carry a larger logo, but
+// the content has to fit the symbol it is encoded in, so the version the
+// content chose is the floor rather than a starting point.
+func grownSymbol(q *qrcode.QRCode, scale float64, stderr io.Writer) (*qrcode.QRCode, error) {
+	version, largest := qrcode.SmallestVersionCarryingLogo(q.VersionNumber,
+		q.Level, scale, logoMargin)
+
+	if version == 0 {
+		return nil, noVersionCarries(q.VersionNumber, scale, largest)
+	}
+
+	// Nothing was chosen where the content chose the same version, so there
+	// is nothing to report and nothing to re-encode.
+	if version == q.VersionNumber {
+		return q, nil
+	}
+
+	grown, err := qrcode.NewWithForcedVersion(q.Content, version, q.Level)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = fmt.Fprintf(stderr, "symbol grown to version %d, the smallest "+
+		"that carries a logo of scale %.4f with a %d module margin\n",
+		version, scale, logoMargin)
+	if err != nil {
+		return nil, err
+	}
+
+	return grown, nil
+}
+
+// noVersionCarries reports a scale that no symbol the content could be
+// encoded in carries, naming the largest scale those symbols do carry.
+//
+// What it offers is a scale, not a version: -grow-symbol takes a scale and
+// turns it into a version, so the scale is the part left for the caller to
+// change. Where nothing was measured to offer — a margin wide enough leaves
+// no version carrying a logo of any size — it offers nothing rather than a
+// scale of 0.0000, which would be advice to attach no logo at all (ADR-0004).
+func noVersionCarries(from int, scale, largest float64) error {
+	if largest == 0 {
+		return fmt.Errorf("no symbol from version %d up carries a logo of "+
+			"scale %.4f with a %d module margin, and none carries a logo of "+
+			"any size", from, scale, logoMargin)
+	}
+
+	return fmt.Errorf("no symbol from version %d up carries a logo of scale "+
+		"%.4f with a %d module margin: the largest they carry is %.4f",
+		from, scale, logoMargin, largest)
 }
 
 // readImage decodes the image file named by path, which the standard library
@@ -199,6 +273,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 	// printing a default that contradicts the description.
 	logoScale := flags.Float64("logo-scale", 0,
 		"logo width as a fraction of the QR Code's width, excluding the border (default: the largest that fits)")
+	growSymbol := flags.Bool("grow-symbol", false,
+		"encode at the smallest version whose symbol carries -logo-scale, instead of the version the content's length chose")
 	flags.Usage = func() { printUsage(flags) }
 
 	if err := flags.Parse(args); err != nil {
@@ -217,6 +293,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return misuse(flags, "-logo-scale needs a logo: pass -L <file>")
 	}
 
+	if *growSymbol && !isSet(flags, "logo-scale") {
+		return misuse(flags, "-grow-symbol needs a scale to grow to: pass -logo-scale")
+	}
+
 	if *logoFile != "" && *textArt {
 		return misuse(flags, "text art cannot show a logo: drop -t or -L")
 	}
@@ -224,6 +304,12 @@ func run(args []string, stdout, stderr io.Writer) error {
 	q, err := qrcode.New(strings.Join(flags.Args(), " "), qrcode.Highest)
 	if err != nil {
 		return err
+	}
+
+	if *growSymbol {
+		if q, err = grownSymbol(q, *logoScale, stderr); err != nil {
+			return err
+		}
 	}
 
 	q.DisableBorder = *disableBorder

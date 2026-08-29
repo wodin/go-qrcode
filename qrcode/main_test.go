@@ -737,10 +737,137 @@ func TestUsageDocumentsTheLogoFlags(t *testing.T) {
 	// What -logo-scale defaults to is the fitted scale, not the package's
 	// 0.2: a caller reading the usage text must not be told a number the
 	// tool never uses.
-	for _, want := range []string{"-L", "-logo ", "-logo-scale",
+	for _, want := range []string{"-L", "-logo ", "-logo-scale", "-grow-symbol",
 		"(default: the largest that fits)"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("the usage text does not mention %q:\n%s", want, stderr)
 		}
+	}
+}
+
+func TestGrowSymbolEncodesAtTheSmallestVersionCarryingTheScale(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	// Five characters make a version 1 symbol, which carries a logo of
+	// 0.0476: without a larger symbol the content's length caps the logo, and
+	// asking for a fifth of the width is refused however the flags are
+	// arranged.
+	if _, _, err := invoke(t, "-L", logo, "-logo-scale", "0.2", shortContent); err == nil {
+		t.Fatal("run(-logo-scale 0.2 hello) returned no error, so the symbol the content chose already carries the scale")
+	}
+
+	stdout, stderr, err := invoke(t, "-L", logo, "-logo-scale", "0.2",
+		"-grow-symbol", shortContent)
+	if err != nil {
+		t.Fatalf("run(-logo-scale 0.2 -grow-symbol hello) error = %v, want nil", err)
+	}
+
+	if got := centreColour(t, stdout); !nearLogoColour(got) {
+		t.Errorf("the centre of the image is %v, want the logo colour %v", got, logoColour)
+	}
+
+	// Version 6 is the smallest carrying a fifth of its width at the recovery
+	// level the tool encodes at, and it is not reached by stepping: versions
+	// 2 to 5 carry 0.1200, 0.1034, 0.1515 and 0.1892.
+	if !strings.Contains(stderr, "version 6") {
+		t.Errorf("run(-grow-symbol ...) stderr = %q, want the version it grew to", stderr)
+	}
+	if !strings.Contains(stderr, "0.2000") {
+		t.Errorf("run(-grow-symbol ...) stderr = %q, want the scale it grew for", stderr)
+	}
+
+	// The point of the larger symbol is the larger logo, so the logo really
+	// is drawn wider than the one the version the content chose would carry.
+	fitted, _, err := invoke(t, "-L", logo, shortContent)
+	if err != nil {
+		t.Fatalf("run(-L ... hello) error = %v, want nil", err)
+	}
+	if logoWidth(t, stdout) <= logoWidth(t, fitted) {
+		t.Errorf("the grown symbol's logo is %d pixels wide, no wider than the %d of the symbol the content chose",
+			logoWidth(t, stdout), logoWidth(t, fitted))
+	}
+}
+
+func TestGrowSymbolLeavesASymbolThatAlreadyCarriesTheScaleAlone(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	// This content makes a version 6 symbol, which carries 0.2683, so the
+	// smallest version carrying 0.2 is the one the content already chose.
+	// Growing is a floor, not a bump: there is nothing to grow to here.
+	stated, _, err := invoke(t, "-L", logo, "-logo-scale", "0.2", brandedContent)
+	if err != nil {
+		t.Fatalf("run(-logo-scale 0.2 ...) error = %v, want nil", err)
+	}
+
+	grown, stderr, err := invoke(t, "-L", logo, "-logo-scale", "0.2",
+		"-grow-symbol", brandedContent)
+	if err != nil {
+		t.Fatalf("run(-logo-scale 0.2 -grow-symbol ...) error = %v, want nil", err)
+	}
+
+	if !bytes.Equal(stated, grown) {
+		t.Error("-grow-symbol changed a symbol that already carries the scale asked for")
+	}
+
+	// Nothing was chosen, so there is nothing to report: the note belongs to
+	// a version the tool picked, not to one the content did.
+	if stderr != "" {
+		t.Errorf("run(-grow-symbol ...) stderr = %q, want nothing: the symbol did not grow", stderr)
+	}
+}
+
+func TestGrowSymbolNeedsAScaleToGrowTo(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	// Without a scale the tool already fits the logo to the symbol, so there
+	// is no size to grow the symbol to and the flag asks for nothing.
+	stdout, _, err := invoke(t, "-L", logo, "-grow-symbol", brandedContent)
+
+	if err == nil {
+		t.Fatal("run(-L ... -grow-symbol) returned no error, want the flag to need a scale")
+	}
+	if !strings.Contains(err.Error(), "-logo-scale") {
+		t.Errorf("run(-grow-symbol) without a scale reports %q, want it to name -logo-scale", err)
+	}
+	if len(stdout) != 0 {
+		t.Errorf("run(-grow-symbol) without a scale wrote %d bytes to stdout, want none", len(stdout))
+	}
+}
+
+func TestAScaleNoVersionCarriesIsRefusedWithTheLargestThatIs(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	stdout, _, err := invoke(t, "-L", logo, "-logo-scale", "0.9", "-grow-symbol",
+		brandedContent)
+
+	if err == nil {
+		t.Fatal("run(-logo-scale 0.9 -grow-symbol ...) returned no error, want a refusal")
+	}
+
+	// Growing the symbol was the lever, and it has been pulled all the way:
+	// what is left to ask for is a smaller scale, and the tool says which.
+	largest := fmt.Sprintf("%.4f", 0.3333)
+	if !strings.Contains(err.Error(), largest) {
+		t.Errorf("run(-logo-scale 0.9 -grow-symbol ...) error = %q, want the largest scale any version carries, %s",
+			err, largest)
+	}
+	if len(stdout) != 0 {
+		t.Errorf("a refused logo wrote %d bytes to stdout, want none", len(stdout))
+	}
+}
+
+func TestNoScaleIsOfferedWhenNoVersionCarriesALogoAtAll(t *testing.T) {
+	// The tool fixes the margin at one module, where every version carries a
+	// logo of some size, so it takes a direct call to reach the case where
+	// there is no scale to offer. It is reachable through the library, whose
+	// margin is the caller's, and a message naming a scale of 0.0000 would be
+	// advice to attach nothing.
+	message := noVersionCarries(3, 0.9, 0).Error()
+
+	if strings.Contains(message, "0.0000") {
+		t.Errorf("with nothing carried the refusal says %q, want no scale offered", message)
+	}
+	if !strings.Contains(message, "0.9000") {
+		t.Errorf("the refusal says %q, want it to name the scale asked for", message)
 	}
 }

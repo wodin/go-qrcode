@@ -51,6 +51,14 @@ A logo may be placed in the centre of a QR Code. The logo, and the clear space k
 
   A logo the QR Code could not survive is refused with a `*qrcode.LogoTooLargeError` or a `*qrcode.LogoOccludesFunctionPatternError`, each carrying the largest scale that would have been accepted. The content above is long enough to make a version 5 symbol, which carries a scale 0.15 logo; the shorter `https://example.org` makes a version 3 symbol, which does not.
 
+- **Ask which QR Code to build for the logo you want:**
+
+        version, largest := qrcode.SmallestVersionCarryingLogo(q.VersionNumber, q.Level, 0.2, 1)
+
+        q, err = qrcode.NewWithForcedVersion(content, version, q.Level)
+
+  What a symbol carries follows from its version, recovery level and margin, never from the content, so the version is the only lever over a logo's size — and the content's length pulls it unless you ask. `SmallestVersionCarryingLogo` names the smallest version, at or above the one the content needs, whose symbol carries the scale; when none does, it reports the largest scale they do carry, to ask for instead.
+
 - **Ask what fits before attaching anything:**
 
         scale := q.MaxLogoScale(1)
@@ -81,6 +89,8 @@ Flags:
   -L string
     	shorthand for -logo
   -d	disable QR Code border
+  -grow-symbol
+    	encode at the smallest version whose symbol carries -logo-scale, instead of the version the content's length chose
   -i	invert black and white
   -logo string
     	logo image file (PNG, JPEG or GIF) to place in the centre, empty for none
@@ -115,6 +125,12 @@ Usage:
      carries a larger logo:
 
        qrcode -L logo.png -logo-scale 0.15 "https://example.org/spring-sale" > out.png
+
+  4. Ask for the symbol the logo needs, rather than the one the content's
+     length chose. -grow-symbol encodes at the smallest version that carries
+     the scale asked for, and reports the version on stderr:
+
+       qrcode -L logo.png -logo-scale 0.2 -grow-symbol "https://example.org" > out.png
 
 ```
 ## Maximum capacity
