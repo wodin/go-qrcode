@@ -73,7 +73,11 @@ direction at each edge, stepping over every function pattern — and over the
 vertical timing pattern a whole column at a time, so that the columns either
 side of it stay correctly paired. Bit *i* goes to the *i*th module of the
 path, so codeword *n* occupies path modules 8*n* to 8*n*+7. It is what maps a
-module back to the codeword it carries. `dataModulePath` returns it.
+module back to the codeword it carries. A version's placement path is the same
+for every symbol of that version — the function patterns it steps over are
+fixed by the version alone, so neither the content, the recovery level nor the
+data mask moves a single module of it. `newPlacementPath` builds one, and a
+`placementPath` carries its version with it so the two cannot be mismatched.
 
 **Data mask**:
 One of eight fixed patterns exclusive-ORed with the encoded bit stream as it
