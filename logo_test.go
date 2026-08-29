@@ -803,3 +803,20 @@ func TestEveryVersionSmallestVersionCarryingLogoNamesAcceptsTheScale(t *testing.
 		}
 	}
 }
+
+func TestSmallestVersionCarryingLogoLeavesAScaleThatIsNoFractionToSetLogo(t *testing.T) {
+	// A scale outside (0, 1] is a mistake in the call rather than a symbol too
+	// small to carry it, and SetLogo says so in those terms. Reporting the
+	// largest scale carried instead would answer a question nobody asked, and
+	// would offer 0.3333 to a caller who has typed a percentage where a
+	// fraction goes.
+	for _, scale := range []float64{-0.5, 0, 1.5, 20} {
+		version, largestCarried := SmallestVersionCarryingLogo(1, Highest, scale,
+			defaultLogoMargin)
+
+		if version != 0 || largestCarried != 0 {
+			t.Errorf("a scale of %v reported version %d and scale %v, want nothing measured: it is not a fraction of the symbol's width",
+				scale, version, largestCarried)
+		}
+	}
+}

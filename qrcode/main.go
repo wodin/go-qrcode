@@ -180,11 +180,23 @@ func fitLogo(q *qrcode.QRCode, path string, stderr io.Writer) error {
 // the content has to fit the symbol it is encoded in, so the version the
 // content chose is the floor rather than a starting point.
 func grownSymbol(q *qrcode.QRCode, scale float64, stderr io.Writer) (*qrcode.QRCode, error) {
-	version, largest := qrcode.SmallestVersionCarryingLogo(q.VersionNumber,
+	version, largestCarried := qrcode.SmallestVersionCarryingLogo(q.VersionNumber,
 		q.Level, scale, logoMargin)
 
-	if version == 0 {
-		return nil, noVersionCarries(q.VersionNumber, scale, largest)
+	switch {
+	case version != 0:
+		// A version to grow to, below.
+
+	case largestCarried > 0:
+		return nil, noVersionCarries(q.VersionNumber, scale, largestCarried)
+
+	default:
+		// Nothing was measured, so there is nothing measured to say: the
+		// scale is not a fraction of the symbol's width, or the margin is
+		// wider than any symbol carries. Both are the library's to report,
+		// and it reports them in the terms the caller typed — leaving the
+		// symbol alone here hands them to SetLogo unanswered.
+		return q, nil
 	}
 
 	// Nothing was chosen where the content chose the same version, so there
@@ -213,19 +225,13 @@ func grownSymbol(q *qrcode.QRCode, scale float64, stderr io.Writer) (*qrcode.QRC
 //
 // What it offers is a scale, not a version: -grow-symbol takes a scale and
 // turns it into a version, so the scale is the part left for the caller to
-// change. Where nothing was measured to offer — a margin wide enough leaves
-// no version carrying a logo of any size — it offers nothing rather than a
-// scale of 0.0000, which would be advice to attach no logo at all (ADR-0004).
-func noVersionCarries(from int, scale, largest float64) error {
-	if largest == 0 {
-		return fmt.Errorf("no symbol from version %d up carries a logo of "+
-			"scale %.4f with a %d module margin, and none carries a logo of "+
-			"any size", from, scale, logoMargin)
-	}
-
+// change. It is only ever built from a measured scale — where the scan
+// measured nothing there is nothing to report and grownSymbol says nothing
+// (ADR-0004).
+func noVersionCarries(from int, scale, largestCarried float64) error {
 	return fmt.Errorf("no symbol from version %d up carries a logo of scale "+
 		"%.4f with a %d module margin: the largest they carry is %.4f",
-		from, scale, logoMargin, largest)
+		from, scale, logoMargin, largestCarried)
 }
 
 // readImage decodes the image file named by path, which the standard library

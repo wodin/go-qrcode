@@ -155,17 +155,28 @@ type logoRemedy struct {
 // been checked.
 func largerVersionFittingALogo(v qrCodeVersion, margin int) logoRemedy {
 	for versionNumber := v.version + 1; versionNumber <= maxVersionNumber; versionNumber++ {
-		larger := getQRCodeVersion(v.level, versionNumber)
-		if larger == nil {
-			continue
-		}
-
-		if scale := newLogoFit(*larger).maxScale(margin); scale > 0 {
+		if scale := scaleCarriedBy(versionNumber, v.level, margin); scale > 0 {
 			return logoRemedy{version: versionNumber, scale: scale}
 		}
 	}
 
 	return logoRemedy{}
+}
+
+// scaleCarriedBy returns the largest logo scale a symbol of this version and
+// recovery level carries at margin modules of clear space, or 0 when it
+// carries none — as a version there is no symbol for carries none.
+//
+// It is what a scan over versions measures at each candidate, and the only
+// place a version number becomes a measurement, so that the two scans cannot
+// answer the same question differently.
+func scaleCarriedBy(versionNumber int, level RecoveryLevel, margin int) float64 {
+	v := getQRCodeVersion(level, versionNumber)
+	if v == nil {
+		return 0
+	}
+
+	return newLogoFit(*v).maxScale(margin)
 }
 
 // logoScaleAdvice tells a caller what the fit check found: the scale to ask
@@ -231,13 +242,16 @@ func (q *QRCode) MaxLogoScale(margin int) float64 {
 // carries a logo.
 //
 // The version is 0 when no version from there up carries the scale, and
-// largest is then the largest scale they do carry: a scale rather than a
-// version, because the scale is what the caller chooses and this is what
-// turns it into a version. Otherwise largest is 0. There is nothing to ask
-// for instead when what was asked for is carried, and nothing to ask for
-// either when no version from there up carries a logo of any size, so a zero
-// largest means the same as the zero value of a refusal's remedy: nothing
-// measured is on offer.
+// largestCarried is then the largest scale they do carry: a scale rather than
+// a version, because the scale is what the caller chooses and this is what
+// turns it into a version. Otherwise largestCarried is 0, as the zero value
+// of a refusal's remedy means: there is nothing measured to offer instead.
+//
+// Both are 0 where there is no measurement to report at all — a scale outside
+// (0, 1] is not a fraction of a symbol's width and so is a mistake in the
+// call rather than a symbol too small to carry it, exactly as SetLogo treats
+// it, and a margin can be wide enough that no version carries a logo of any
+// size. Ask SetLogo, which says which of the two it is.
 //
 // Every candidate is measured and none is inferred from its neighbour. Around
 // half of all version steps carry a smaller logo than the version below them
@@ -245,30 +259,25 @@ func (q *QRCode) MaxLogoScale(margin int) float64 {
 // which every version fits, and no arithmetic on the symbol's width that
 // would find one (ADR-0004).
 func SmallestVersionCarryingLogo(from int, level RecoveryLevel, scale float64,
-	margin int) (version int, largest float64) {
+	margin int) (version int, largestCarried float64) {
 
-	if from < 1 || from > maxVersionNumber {
+	if from < 1 || from > maxVersionNumber || scale <= 0 || scale > 1 {
 		return 0, 0
 	}
 
 	for candidate := from; candidate <= maxVersionNumber; candidate++ {
-		v := getQRCodeVersion(level, candidate)
-		if v == nil {
-			continue
-		}
-
-		carried := newLogoFit(*v).maxScale(margin)
+		carried := scaleCarriedBy(candidate, level, margin)
 
 		if carried >= scale {
 			return candidate, 0
 		}
 
-		if carried > largest {
-			largest = carried
+		if carried > largestCarried {
+			largestCarried = carried
 		}
 	}
 
-	return 0, largest
+	return 0, largestCarried
 }
 
 // FitLogo attaches logo to the centre of the QR Code at the largest scale the

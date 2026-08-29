@@ -53,11 +53,14 @@ A logo may be placed in the centre of a QR Code. The logo, and the clear space k
 
 - **Ask which QR Code to build for the logo you want:**
 
-        version, largest := qrcode.SmallestVersionCarryingLogo(q.VersionNumber, q.Level, 0.2, 1)
+        version, largestCarried := qrcode.SmallestVersionCarryingLogo(q.VersionNumber, q.Level, 0.2, 1)
+        if version == 0 {
+                return fmt.Errorf("no version carries a scale 0.2 logo; the largest carried is %.4f", largestCarried)
+        }
 
         q, err = qrcode.NewWithForcedVersion(content, version, q.Level)
 
-  What a symbol carries follows from its version, recovery level and margin, never from the content, so the version is the only lever over a logo's size — and the content's length pulls it unless you ask. `SmallestVersionCarryingLogo` names the smallest version, at or above the one the content needs, whose symbol carries the scale; when none does, it reports the largest scale they do carry, to ask for instead.
+  What a symbol carries follows from its version, recovery level and margin, never from the content, so the version is the only lever over a logo's size — and the content's length pulls it unless you ask. `SmallestVersionCarryingLogo` names the smallest version, at or above the one the content needs, whose symbol carries the scale. A version of 0 means none of them does, and `largestCarried` is then the largest scale they do carry, to ask for instead; both are 0 when there is nothing measured to report, which `SetLogo` explains.
 
 - **Ask what fits before attaching anything:**
 

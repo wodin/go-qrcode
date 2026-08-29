@@ -856,18 +856,35 @@ func TestAScaleNoVersionCarriesIsRefusedWithTheLargestThatIs(t *testing.T) {
 	}
 }
 
-func TestNoScaleIsOfferedWhenNoVersionCarriesALogoAtAll(t *testing.T) {
-	// The tool fixes the margin at one module, where every version carries a
-	// logo of some size, so it takes a direct call to reach the case where
-	// there is no scale to offer. It is reachable through the library, whose
-	// margin is the caller's, and a message naming a scale of 0.0000 would be
-	// advice to attach nothing.
-	message := noVersionCarries(3, 0.9, 0).Error()
+func TestGrowingLeavesAScaleThatIsNoFractionToTheLibrary(t *testing.T) {
+	logo := writeLogo(t, ".png")
 
-	if strings.Contains(message, "0.0000") {
-		t.Errorf("with nothing carried the refusal says %q, want no scale offered", message)
-	}
-	if !strings.Contains(message, "0.9000") {
-		t.Errorf("the refusal says %q, want it to name the scale asked for", message)
+	// A scale outside (0, 1] is a mistake in the command line, not a symbol
+	// too small to carry it, and it is refused in those terms with or without
+	// -grow-symbol. Scanning for a version instead would report an impossible
+	// scale as a want of capacity, and offer the largest scale any version
+	// carries to someone who has typed a percentage where a fraction goes.
+	for _, scale := range []string{"1.5", "0", "-0.5"} {
+		plain, _, err := invoke(t, "-L", logo, "-logo-scale", scale, shortContent)
+		if err == nil {
+			t.Fatalf("run(-logo-scale %s) returned no error, want a scale outside (0, 1] refused", scale)
+		}
+		if len(plain) != 0 {
+			t.Errorf("run(-logo-scale %s) wrote %d bytes to stdout, want none", scale, len(plain))
+		}
+
+		stdout, _, grownErr := invoke(t, "-L", logo, "-logo-scale", scale,
+			"-grow-symbol", shortContent)
+		if grownErr == nil {
+			t.Fatalf("run(-logo-scale %s -grow-symbol) returned no error, want the same refusal", scale)
+		}
+		if grownErr.Error() != err.Error() {
+			t.Errorf("run(-logo-scale %s -grow-symbol) reports %q, want what it reports without growing, %q",
+				scale, grownErr, err)
+		}
+		if len(stdout) != 0 {
+			t.Errorf("run(-logo-scale %s -grow-symbol) wrote %d bytes to stdout, want none",
+				scale, len(stdout))
+		}
 	}
 }

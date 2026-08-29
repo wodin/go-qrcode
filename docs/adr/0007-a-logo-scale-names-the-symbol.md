@@ -50,6 +50,14 @@ part left for the caller to change. `SmallestVersionCarryingLogo` returns it
 for that message and returns nothing when nothing was measured, mirroring the
 zero value of a refusal's remedy.
 
+Nothing is measured for a scale outside (0, 1] either. That is a mistake in
+the command line rather than a symbol too small to carry the logo, and
+`SetLogo` already refuses it in the caller's own terms, so `-grow-symbol`
+leaves the symbol alone and lets the refusal come from there. Scanning for a
+version instead would report an impossible scale as a want of capacity, and
+offer the largest scale any version carries to someone who typed a percentage
+where a fraction goes.
+
 The scan builds a codeword layout per candidate version, up to 40 of them, on
 the success path as well as the failure path. It runs once per encode, only
 when `-grow-symbol` is given, and never from the library's own default path.
