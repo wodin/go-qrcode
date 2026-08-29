@@ -95,3 +95,42 @@ risk the opposite disagreement: a module cleared that nothing is drawn into.
 **An opaque logo renders identically**, which is the regression that would
 otherwise go unnoticed. Every module of the knockout is inked, so dilation
 and clipping return the knockout itself. A test pins it.
+
+## The cost the budget does not model, measured
+
+Less codeword damage is not the same as a symbol that reads more easily, and
+this is where the issue's reasoning stops short. The budget counts codewords;
+a scanner has to *find* the symbol before error correction runs at all.
+Clearing the ink replaces one boundary around a square with one around every
+stroke, most of it now abutting live modules, and that costs a locator
+something the budget cannot see.
+
+Measured with zbarimg over all 158 version and recovery level combinations
+that accept a logo, each at the largest accepted scale, with a mark whose
+right half is transparent:
+
+| clearing | 512px render | 4px per module | 6px per module |
+| --- | --- | --- | --- |
+| knockout | 156 of 158 read | 156 | 156 |
+| ink | 148 of 158 | 148 | 148 |
+
+Every failure is zbarimg reporting no symbol at all, never a wrong read: the
+symbol is not located, so the correction capacity the fit reserved is never
+spent. Three things follow from the shape of the numbers.
+
+The scale does not matter. The same seven or so combinations fail at half the
+largest accepted scale as at the whole of it, so this is not damage and no
+amount of headroom in the budget buys it off. What matters is that the mark
+abuts live modules at all.
+
+The pixel pitch does not matter either, so this is not a resampling artefact.
+A wider margin helps — 5 failures of 149 at two modules rather than 8 of 158
+at one — without removing the effect, and widening the margin's default is a
+separate decision (#17 puts it out of scope).
+
+**This is the reason the clearing is opt-in that outlasts the compatibility
+one.** A caller choosing `ClearInk` is trading a few percent of scanner
+reliability for negative space in their mark, and that is a design decision
+they have to make knowingly. `ClearKnockout` remains the default and remains
+the one to reach for where the QR Code has to work more than it has to look a
+particular way.

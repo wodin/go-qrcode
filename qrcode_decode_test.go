@@ -215,7 +215,43 @@ func TestDecodeWithLogo(t *testing.T) {
 
 	for _, versionNumber := range append(onAnAlignmentPattern, clearOfOne...) {
 		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
-			decodeWithLargestLogo(t, logo, versionNumber, level)
+			decodeWithLargestLogo(t, logo, versionNumber, level, ClearKnockout)
+		}
+	}
+}
+
+// TestDecodeWithInkClearedLogo reads back symbols whose knockout was charged
+// in full but only partly cleared.
+//
+// It is the one check that can falsify ADR-0008's asymmetry rather than
+// restate it: every other test compares the package's arithmetic against
+// itself, and zbarimg knows nothing about what was charged. The modules left
+// standing under the mark's transparent regions have to be modules a real
+// decoder reads, not merely modules the renderer did not paint over.
+//
+// These combinations are not the whole table, and deliberately so. Clearing
+// the ink is measurably harder for a scanner to *find* than clearing the
+// square — around one combination in twenty does not read at the largest
+// accepted scale, at any pixel pitch — because a mark abutting live modules
+// gives a locator more edges to resolve. That is a legibility cost the
+// codeword budget does not model, it is why the clearing is opt-in, and it is
+// recorded in ADR-0008 rather than hidden here.
+func TestDecodeWithInkClearedLogo(t *testing.T) {
+	if !*testDecode {
+		t.Skip("Decode tests not enabled")
+	}
+
+	onAnAlignmentPattern := []int{7, 10, 21, 35, 38}
+	clearOfOne := []int{1, 5, 20, 40}
+
+	assertCentresAreOnAlignmentPatterns(t, onAnAlignmentPattern, true)
+	assertCentresAreOnAlignmentPatterns(t, clearOfOne, false)
+
+	logo := thinStrokeLogo(64, 64)
+
+	for _, versionNumber := range append(onAnAlignmentPattern, clearOfOne...) {
+		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
+			decodeWithLargestLogo(t, logo, versionNumber, level, ClearInk)
 		}
 	}
 }
@@ -224,7 +260,7 @@ func TestDecodeWithLogo(t *testing.T) {
 // recovery level at the largest scale the package will accept, and reads the
 // result back through zbarimg.
 func decodeWithLargestLogo(t *testing.T, logo image.Image, versionNumber int,
-	level RecoveryLevel) {
+	level RecoveryLevel, clearing ClearingStyle) {
 
 	t.Helper()
 
@@ -243,6 +279,7 @@ func decodeWithLargestLogo(t *testing.T, logo image.Image, versionNumber int,
 
 	options := DefaultLogoOptions()
 	options.Scale = scale
+	options.Clearing = clearing
 
 	if err := q.SetLogo(logo, options); err != nil {
 		t.Errorf("v%d level %d: the largest accepted scale %v was refused: %s",

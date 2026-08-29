@@ -40,6 +40,14 @@ const (
 	// modules through the region and is damaged in full by any one of them,
 	// so a hole only pays where it leaves whole codewords untouched. A thin
 	// mark with space between its strokes is what this is for.
+	//
+	// It is not free. A mark abutting live modules is harder for a scanner to
+	// locate than the same mark in a cleared square, and around one version
+	// and recovery level combination in twenty stops reading at the largest
+	// accepted scale — whatever the scale and whatever the pixel pitch, so no
+	// budget headroom buys it back (ADR-0008). Choose it where the mark's
+	// negative space is worth that, and leave the default alone where the QR
+	// Code simply has to work.
 	ClearInk
 )
 

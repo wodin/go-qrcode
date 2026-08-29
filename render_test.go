@@ -389,6 +389,37 @@ func TestKnockoutReplacesTheModulesBeneathIt(t *testing.T) {
 	}
 }
 
+// thinStrokeLogo returns a width by height mark of two opaque vertical and
+// two opaque horizontal strokes, transparent between them.
+//
+// This is the shape an ink clearing is for. A compact hole in the middle of a
+// mark frees nothing — a codeword threads eight modules through the region
+// and is damaged in full by any one of them, so every codeword crossing the
+// hole continues out under the ink. Strokes with clear space between them
+// leave whole codewords untouched, which is where the ink clearing pays.
+func thinStrokeLogo(width int, height int) image.Image {
+	logo := image.NewNRGBA(image.Rect(0, 0, width, height))
+
+	// A stroke an eighth of the mark wide, at a quarter and three quarters
+	// across: wide enough to survive the reduction into the seat, far enough
+	// apart that the margin dilated around each does not close the gap.
+	onAStroke := func(along int, span int) bool {
+		stroke := span / 8
+
+		return abs(along-span/4) < stroke/2 || abs(along-3*span/4) < stroke/2
+	}
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			if onAStroke(x, width) || onAStroke(y, height) {
+				logo.Set(x, y, color.NRGBA{A: 255})
+			}
+		}
+	}
+
+	return logo
+}
+
 // checkerboardLogo returns a width by height image of alternating single
 // pixel black and white squares — the highest frequency detail an image of
 // that size can hold, and so the input that separates averaging from
