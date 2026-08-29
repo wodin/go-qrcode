@@ -169,7 +169,7 @@ func newCodewordLayout(v qrCodeVersion) *codewordLayout {
 	// modules and belong to no codeword.
 	numPlacedBits := 8 * len(l.source)
 
-	for i, p := range dataModulePath(v) {
+	for i, p := range newPlacementPath(v).modules {
 		if i >= numPlacedBits {
 			break
 		}

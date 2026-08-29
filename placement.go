@@ -57,10 +57,38 @@ func protectedFunctionPatternSymbol(version qrCodeVersion) *symbol {
 	return m.symbol
 }
 
-// dataModulePath returns the modules of version's data region, in the order
-// the encoder fills them. See symbol.dataModulePath for what the order is.
-func dataModulePath(version qrCodeVersion) []modulePosition {
-	return functionPatternSymbol(version).dataModulePath()
+// placementPath is a version's placement path: the modules of that version's
+// data region, in the order the encoder fills them, together with the version
+// they belong to.
+//
+// The two travel together because they cannot be allowed to disagree. A path
+// belonging to another version places every codeword somewhere else in the
+// symbol, so a symbol built from one would be silently wrong rather than
+// refused. Holding the version here means a caller passes the pair, never a
+// path beside a version it is trusted to match.
+//
+// A version's path is the same for every symbol of that version: the function
+// patterns it steps over are fixed by the version alone, so neither the
+// content, the recovery level nor the data mask moves a single module of it.
+// One path therefore serves a whole encode, all eight data masks of it.
+//
+// The recovery level inside the version is a different matter. It does not
+// affect the modules, but it does decide the values of the format info, so a
+// placementPath value cannot be shared between levels even though its modules
+// could be (ADR-0006).
+type placementPath struct {
+	version qrCodeVersion
+	modules []modulePosition
+}
+
+// newPlacementPath builds version's placement path. It is the only way to
+// obtain one, which is what keeps a path and a version from being paired by
+// mistake.
+func newPlacementPath(version qrCodeVersion) placementPath {
+	return placementPath{
+		version: version,
+		modules: functionPatternSymbol(version).dataModulePath(),
+	}
 }
 
 // dataModulePath returns the modules of s's data region, in the order the
@@ -70,7 +98,7 @@ func dataModulePath(version qrCodeVersion) []modulePosition {
 //
 // s must hold the function patterns and no data — it is s's empty modules
 // that define the data region. Callers without such a symbol already in hand
-// should use the dataModulePath function, which builds one.
+// should use newPlacementPath, which builds one.
 //
 // The path walks upwards from the bottom right corner in two module wide
 // columns, right module of each pair first, reversing direction at the top

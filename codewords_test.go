@@ -422,7 +422,7 @@ func TestCodewordLayoutMatchesISOWorkedExample(t *testing.T) {
 
 	// Each codeword is assembled from the eight modules the layout assigns to
 	// it, taken in placement path order, most significant bit first.
-	for _, p := range dataModulePath(*v) {
+	for _, p := range newPlacementPath(*v).modules {
 		n := l.codewordAt(p.x, p.y)
 		if n == noCodeword {
 			continue

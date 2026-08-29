@@ -107,19 +107,25 @@ var (
 	}
 )
 
-func buildRegularSymbol(version qrCodeVersion, mask int,
+// buildRegularSymbol returns the symbol of path's version holding data,
+// masked with mask.
+//
+// The version comes from path rather than beside it: a symbol is built from
+// exactly the path the caller supplies, so there is no pair to keep in step.
+// The path is the caller's to build once and hand to every mask.
+func buildRegularSymbol(path placementPath, mask int,
 	data *bitset.Bitset, includeQuietZone bool) (*symbol, error) {
 
 	quietZoneSize := 0
 	if includeQuietZone {
-		quietZoneSize = version.quietZoneSize()
+		quietZoneSize = path.version.quietZoneSize()
 	}
 
-	m := newRegularSymbol(version, mask, data, quietZoneSize)
+	m := newRegularSymbol(path.version, mask, data, quietZoneSize)
 
 	m.addFunctionPatterns()
 
-	if err := m.addData(); err != nil {
+	if err := m.addData(path); err != nil {
 		return nil, err
 	}
 
@@ -282,19 +288,20 @@ func dataMask(maskPattern int, x int, y int) bool {
 	return false
 }
 
-// addData places the encoded bit stream into the data region, masked. The
+// addData places the encoded bit stream into path's modules, masked. The
 // function patterns must already be in place.
-func (m *regularSymbol) addData() error {
-	path := m.symbol.dataModulePath()
-
-	if m.data.Len() > len(path) {
+//
+// path is given rather than walked from m, because it is the same path for
+// every mask of a version and an encode builds eight symbols.
+func (m *regularSymbol) addData(path placementPath) error {
+	if m.data.Len() > len(path.modules) {
 		return fmt.Errorf("cannot place %d bits of data in the %d module "+
 			"data region of a version %d symbol",
-			m.data.Len(), len(path), m.version.version)
+			m.data.Len(), len(path.modules), path.version.version)
 	}
 
 	for i := 0; i < m.data.Len(); i++ {
-		p := path[i]
+		p := path.modules[i]
 
 		// != is equivalent to XOR.
 		m.symbol.set(p.x, p.y, dataMask(m.mask, p.x, p.y) != m.data.At(i))

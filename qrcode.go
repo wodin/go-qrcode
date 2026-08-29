@@ -416,11 +416,15 @@ func (q *QRCode) encode() {
 	const numMasks int = 8
 	penalty := 0
 
+	// The placement path depends on the version alone, so the eight masks
+	// share the one path rather than each walking the data region again.
+	path := newPlacementPath(q.version)
+
 	for mask := 0; mask < numMasks; mask++ {
 		var s *symbol
 		var err error
 
-		s, err = buildRegularSymbol(q.version, mask, encoded, !q.DisableBorder)
+		s, err = buildRegularSymbol(path, mask, encoded, !q.DisableBorder)
 
 		if err != nil {
 			log.Panic(err.Error())

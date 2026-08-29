@@ -4,6 +4,8 @@
 package qrcode
 
 import (
+	"runtime"
+	"strings"
 	"testing"
 
 	bitset "github.com/skip2/go-qrcode/bitset"
@@ -11,7 +13,7 @@ import (
 
 func TestDataModulePathStartsAtBottomRight(t *testing.T) {
 	v := getQRCodeVersion(Low, 1)
-	path := dataModulePath(*v)
+	path := newPlacementPath(*v).modules
 
 	// ISO/IEC 18004:2006 8.7.3: placement begins in the bottom right corner
 	// and works upwards in two module wide columns, right module first.
@@ -33,7 +35,7 @@ func TestDataModulePathCoversDataRegionExactlyOnce(t *testing.T) {
 	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
 		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
 			v := getQRCodeVersion(level, versionNumber)
-			path := dataModulePath(*v)
+			path := newPlacementPath(*v).modules
 
 			// The version tables say how many bits the data region holds.
 			// The path must offer a module for each, and no more.
@@ -67,7 +69,7 @@ func TestDataModulePathSkipsFunctionPatterns(t *testing.T) {
 		v := getQRCodeVersion(Low, versionNumber)
 		fps := functionPatternSymbol(*v)
 
-		for i, p := range dataModulePath(*v) {
+		for i, p := range newPlacementPath(*v).modules {
 			if !fps.empty(p.x, p.y) {
 				t.Fatalf("v=%d: path[%d] = %v is a function pattern module",
 					versionNumber, i, p)
@@ -87,14 +89,14 @@ func TestDataModulePathSkipsFunctionPatterns(t *testing.T) {
 // codeword n occupies path[8n:8n+8].
 func TestDataModulePathMatchesEncoderPlacement(t *testing.T) {
 	v := getQRCodeVersion(Low, 1)
-	path := dataModulePath(*v)
+	path := newPlacementPath(*v)
 	numBits := numDataRegionModules(*v)
 
 	for mask := 0; mask <= 7; mask++ {
 		zeros := bitset.New()
 		zeros.AppendNumBools(numBits, false)
 
-		baseline, err := buildRegularSymbol(*v, mask, zeros, false)
+		baseline, err := buildRegularSymbol(path, mask, zeros, false)
 		if err != nil {
 			t.Fatalf("buildRegularSymbol(mask=%d): %s", mask, err)
 		}
@@ -105,7 +107,7 @@ func TestDataModulePathMatchesEncoderPlacement(t *testing.T) {
 			data.AppendBools(true)
 			data.AppendNumBools(numBits-i-1, false)
 
-			s, err := buildRegularSymbol(*v, mask, data, false)
+			s, err := buildRegularSymbol(path, mask, data, false)
 			if err != nil {
 				t.Fatalf("buildRegularSymbol(mask=%d, bit=%d): %s", mask, i, err)
 			}
@@ -113,12 +115,12 @@ func TestDataModulePathMatchesEncoderPlacement(t *testing.T) {
 			for y := 0; y < v.symbolSize(); y++ {
 				for x := 0; x < v.symbolSize(); x++ {
 					differs := s.get(x, y) != baseline.get(x, y)
-					isBitsModule := path[i] == modulePosition{x, y}
+					isBitsModule := path.modules[i] == modulePosition{x, y}
 
 					if differs != isBitsModule {
 						t.Fatalf("mask=%d bit=%d: module (%d,%d) differs=%v, "+
 							"want %v (path[%d] = %v)",
-							mask, i, x, y, differs, isBitsModule, i, path[i])
+							mask, i, x, y, differs, isBitsModule, i, path.modules[i])
 					}
 				}
 			}
@@ -126,16 +128,81 @@ func TestDataModulePathMatchesEncoderPlacement(t *testing.T) {
 	}
 }
 
-// BenchmarkDataModulePath measures the walk on its own. encode() calls it
-// once per mask, eight times per encode, though it depends only on the
-// version — see issue #12.
+// bytesAllocated returns the mean number of heap bytes f allocates per call.
+//
+// Bytes rather than allocation counts, because the placement path's weight is
+// in the size of what it allocates rather than in the number of objects: at
+// version 40 one path is 553 KB against an encode's 15,800 other allocations.
+func bytesAllocated(runs int, f func()) uint64 {
+	var before, after runtime.MemStats
+
+	runtime.ReadMemStats(&before)
+
+	for i := 0; i < runs; i++ {
+		f()
+	}
+
+	runtime.ReadMemStats(&after)
+
+	return (after.TotalAlloc - before.TotalAlloc) / uint64(runs)
+}
+
+// TestEncodeBuildsThePlacementPathOnce pins the lifetime the path is built
+// for: one per encode, shared by all eight data masks, rather than one per
+// mask.
+//
+// Expressed in allocated bytes so that it needs no figure of its own to go
+// stale. An encode that built the path per mask would allocate eight paths,
+// so it could not come in under eight paths' worth however cheap the rest of
+// it was; an encode that builds one comes in far under, since the other
+// allocations are a fraction of a single path at this version.
+func TestEncodeBuildsThePlacementPathOnce(t *testing.T) {
+	// Version 40 is where the path is largest, and so where the difference
+	// between one and eight is least likely to be lost in the noise.
+	v := getQRCodeVersion(Low, 40)
+
+	const runs = 5
+
+	pathBytes := bytesAllocated(runs, func() {
+		newPlacementPath(*v)
+	})
+
+	// encode() adds the terminator and padding to q.data, so each run needs
+	// its own QRCode. Building them outside the measurement keeps New's
+	// allocations out of the figure.
+	codes := make([]*QRCode, runs)
+	for i := range codes {
+		q, err := New(strings.Repeat("0", 7089), Low)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		codes[i] = q
+	}
+
+	i := 0
+	encodeBytes := bytesAllocated(runs, func() {
+		codes[i].encode()
+		i++
+	})
+
+	if limit := 8 * pathBytes; encodeBytes >= limit {
+		t.Errorf("a version 40 encode allocates %d bytes, want under %d "+
+			"(8 x the %d bytes of one placement path): the path looks like "+
+			"it is being built once per mask",
+			encodeBytes, limit, pathBytes)
+	}
+}
+
+// BenchmarkDataModulePath measures the walk on its own. An encode runs it
+// once, whatever the mask, since the path depends only on the version.
 func BenchmarkDataModulePath(b *testing.B) {
 	v := getQRCodeVersion(Low, 40)
 
 	b.ReportAllocs()
 
 	for n := 0; n < b.N; n++ {
-		dataModulePath(*v)
+		newPlacementPath(*v)
 	}
 }
 

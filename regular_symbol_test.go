@@ -21,7 +21,7 @@ func TestBuildRegularSymbol(t *testing.T) {
 			data.AppendNumBools(8, false)
 		}
 
-		s, err := buildRegularSymbol(*v, k, data, false)
+		s, err := buildRegularSymbol(newPlacementPath(*v), k, data, false)
 
 		if err != nil {
 			fmt.Println(err.Error())
@@ -87,9 +87,10 @@ func TestRegularSymbolPlacementGolden(t *testing.T) {
 			v := getQRCodeVersion(level, versionNumber)
 
 			data := pseudoRandomBits(numDataRegionModules(*v))
+			path := newPlacementPath(*v)
 
 			for mask := 0; mask <= 7; mask++ {
-				s, err := buildRegularSymbol(*v, mask, data, false)
+				s, err := buildRegularSymbol(path, mask, data, false)
 				if err != nil {
 					t.Fatalf("buildRegularSymbol(v=%d, level=%d, mask=%d): %s",
 						versionNumber, level, mask, err)
@@ -125,7 +126,7 @@ func TestBuildRegularSymbolRejectsOversizedData(t *testing.T) {
 	data := bitset.New()
 	data.AppendNumBools(numDataRegionModules(*v)+1, false)
 
-	if _, err := buildRegularSymbol(*v, 0, data, false); err == nil {
+	if _, err := buildRegularSymbol(newPlacementPath(*v), 0, data, false); err == nil {
 		t.Error("buildRegularSymbol with one bit too much data: got nil error")
 	}
 }
