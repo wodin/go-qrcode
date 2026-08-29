@@ -88,6 +88,19 @@ Usage:
 
        qrcode -L logo.png -logo-scale 0.2 -grow-symbol "https://example.org" > out.png
 
+  5. Keep the modules under a transparent logo's holes. -logo-clearing ink
+     blanks only the modules the logo covers, and the margin around each
+     stroke, instead of the whole square:
+
+       qrcode -L mark.png -logo-clearing ink "https://example.org" > out.png
+
+     The logo does not get bigger. The whole square is still charged
+     against the error correction, so the size asked for is the size drawn
+     and the symbol simply decodes with more real data than it was charged
+     for. It is not free either: a mark abutting live modules is harder for
+     a scanner to find than one in a cleared square, so ask for it when the
+     negative space is worth that.
+
 `)
 }
 
@@ -121,16 +134,41 @@ func isSet(flags *flag.FlagSet, name string) bool {
 // is a safety property rather than a size knob (#16).
 var logoMargin = qrcode.DefaultLogoOptions().Margin
 
+// clearingStyles are the values -logo-clearing takes, each named for what it
+// blanks rather than for the image it blanks it in.
+var clearingStyles = map[string]qrcode.ClearingStyle{
+	"knockout": qrcode.ClearKnockout,
+	"ink":      qrcode.ClearInk,
+}
+
+// defaultClearing is what -logo-clearing means when it is not given: the
+// whole square, which is the library's default and what every existing
+// command line already produces.
+const defaultClearing = "knockout"
+
 // attachLogo reads the image in the file named by path and places it in the
-// centre of q, scale of the symbol's width wide.
-func attachLogo(q *qrcode.QRCode, path string, scale float64) error {
+// centre of q, scale of the symbol's width wide, blanking the modules
+// clearing names.
+func attachLogo(q *qrcode.QRCode, path string, scale float64,
+	clearing qrcode.ClearingStyle) error {
+
 	logo, err := readImage(path)
 	if err != nil {
 		return err
 	}
 
+	return seatLogo(q, logo, scale, clearing)
+}
+
+// seatLogo places an already-read logo in the centre of q, at the tool's own
+// margin. It is the one place the tool builds a LogoOptions, so that the
+// scale a caller names and the scale the tool chooses are seated alike.
+func seatLogo(q *qrcode.QRCode, logo image.Image, scale float64,
+	clearing qrcode.ClearingStyle) error {
+
 	options := qrcode.DefaultLogoOptions()
 	options.Scale = scale
+	options.Clearing = clearing
 
 	return q.SetLogo(logo, options)
 }
@@ -144,12 +182,16 @@ func attachLogo(q *qrcode.QRCode, path string, scale float64) error {
 // a caller who named no scale asked for a branded QR Code rather than for one
 // particular size. The note is not a warning: it is how a caller learns the
 // scale and version they would name to ask for the same image explicitly.
-func fitLogo(q *qrcode.QRCode, path string, stderr io.Writer) error {
+func fitLogo(q *qrcode.QRCode, path string, clearing qrcode.ClearingStyle,
+	stderr io.Writer) error {
+
 	logo, err := readImage(path)
 	if err != nil {
 		return err
 	}
 
+	// FitLogo both picks the scale and judges it, and its refusal is the one
+	// a caller needs to see, so it goes first whatever the clearing.
 	if err := q.FitLogo(logo, logoMargin); err != nil {
 		return err
 	}
@@ -157,9 +199,21 @@ func fitLogo(q *qrcode.QRCode, path string, stderr io.Writer) error {
 	// Asking again gives what was seated: the largest accepted scale depends
 	// on the symbol's version, recovery level and margin alone, none of which
 	// seating a logo changes.
+	scale := q.MaxLogoScale(logoMargin)
+
+	// The clearing is a rendering choice rather than a size, so FitLogo does
+	// not take one. Seating the same logo again at the scale it chose is what
+	// carries it through — and cannot be refused, since the scale is one the
+	// symbol has just accepted.
+	if clearing != qrcode.ClearKnockout {
+		if err := seatLogo(q, logo, scale, clearing); err != nil {
+			return err
+		}
+	}
+
 	_, err = fmt.Fprintf(stderr, "logo scaled to %.4f of the QR Code's width, "+
 		"the largest a version %d symbol accepts with a %d module margin\n",
-		q.MaxLogoScale(logoMargin), q.VersionNumber, logoMargin)
+		scale, q.VersionNumber, logoMargin)
 
 	return err
 }
@@ -281,6 +335,8 @@ func run(args []string, stdout, stderr io.Writer) error {
 		"logo width as a fraction of the QR Code's width, excluding the border (default: the largest that fits)")
 	growSymbol := flags.Bool("grow-symbol", false,
 		"encode at the smallest version whose symbol carries -logo-scale, instead of the version the content's length chose")
+	logoClearing := flags.String("logo-clearing", defaultClearing,
+		"which modules the logo blanks to the background: knockout (the whole square) or ink (only what the logo covers, and the margin around each stroke)")
 	flags.Usage = func() { printUsage(flags) }
 
 	if err := flags.Parse(args); err != nil {
@@ -297,6 +353,16 @@ func run(args []string, stdout, stderr io.Writer) error {
 
 	if *logoFile == "" && isSet(flags, "logo-scale") {
 		return misuse(flags, "-logo-scale needs a logo: pass -L <file>")
+	}
+
+	if *logoFile == "" && isSet(flags, "logo-clearing") {
+		return misuse(flags, "-logo-clearing needs a logo: pass -L <file>")
+	}
+
+	clearing, known := clearingStyles[*logoClearing]
+	if !known {
+		return misuse(flags, fmt.Sprintf("-logo-clearing is %q (expected "+
+			"knockout or ink)", *logoClearing))
 	}
 
 	if *growSymbol && !isSet(flags, "logo-scale") {
@@ -324,9 +390,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 		// A scale the caller named is seated exactly or refused; one they did
 		// not is the tool's to choose, and it chooses the largest that fits.
 		if isSet(flags, "logo-scale") {
-			err = attachLogo(q, *logoFile, *logoScale)
+			err = attachLogo(q, *logoFile, *logoScale, clearing)
 		} else {
-			err = fitLogo(q, *logoFile, stderr)
+			err = fitLogo(q, *logoFile, clearing, stderr)
 		}
 
 		if err != nil {

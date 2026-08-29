@@ -738,7 +738,7 @@ func TestUsageDocumentsTheLogoFlags(t *testing.T) {
 	// 0.2: a caller reading the usage text must not be told a number the
 	// tool never uses.
 	for _, want := range []string{"-L", "-logo ", "-logo-scale", "-grow-symbol",
-		"(default: the largest that fits)"} {
+		"-logo-clearing", "(default: the largest that fits)"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("the usage text does not mention %q:\n%s", want, stderr)
 		}
@@ -886,5 +886,114 @@ func TestGrowingLeavesAScaleThatIsNoFractionToTheLibrary(t *testing.T) {
 			t.Errorf("run(-logo-scale %s -grow-symbol) wrote %d bytes to stdout, want none",
 				scale, len(stdout))
 		}
+	}
+}
+
+// writeTransparentLogo encodes a PNG whose left half is logoColour and whose
+// right half is not there at all, and returns its path. It is the mark the
+// ink clearing exists for: an opaque logo inks every module of its knockout
+// and renders identically either way.
+func writeTransparentLogo(t *testing.T) string {
+	t.Helper()
+
+	logo := image.NewNRGBA(image.Rect(0, 0, 64, 64))
+	draw.Draw(logo, image.Rect(0, 0, 32, 64), &image.Uniform{C: logoColour},
+		image.Point{}, draw.Src)
+
+	path := filepath.Join(t.TempDir(), "transparent.png")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("creating the transparent test logo: %v", err)
+	}
+	defer file.Close()
+
+	if err := png.Encode(file, logo); err != nil {
+		t.Fatalf("encoding the transparent test logo: %v", err)
+	}
+
+	return path
+}
+
+func TestLogoClearingFlagClearsOnlyTheInk(t *testing.T) {
+	logo := writeTransparentLogo(t)
+
+	byDefault, _, err := invoke(t, "-L", logo, brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L %s) error = %v, want nil", logo, err)
+	}
+
+	inked, _, err := invoke(t, "-L", logo, "-logo-clearing", "ink", brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L %s -logo-clearing ink) error = %v, want nil", logo, err)
+	}
+
+	// The modules under the logo's transparent half survive, so the two
+	// images cannot be the same one.
+	if bytes.Equal(byDefault, inked) {
+		t.Error("-logo-clearing ink produced the same image as the default, " +
+			"so the flag did not reach the logo")
+	}
+
+	// And the mark itself is still drawn, rather than the flag having
+	// somehow dropped it. Counted along the middle row rather than at the
+	// centre pixel, which this logo puts on the seam between its halves.
+	if logoWidth(t, inked) == 0 {
+		t.Error("no pixel of the ink-cleared image is the logo colour, so " +
+			"the mark was not drawn")
+	}
+
+	// Naming the default is not the same as saying nothing, but it must
+	// produce the same image.
+	spelled, _, err := invoke(t, "-L", logo, "-logo-clearing", "knockout",
+		brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L %s -logo-clearing knockout) error = %v, want nil",
+			logo, err)
+	}
+
+	if !bytes.Equal(byDefault, spelled) {
+		t.Error("-logo-clearing knockout differs from the default, which is " +
+			"the same clearing")
+	}
+}
+
+func TestAnUnknownClearingIsAnError(t *testing.T) {
+	logo := writeLogo(t, ".png")
+
+	stdout, _, err := invoke(t, "-L", logo, "-logo-clearing", "transparent",
+		brandedContent)
+
+	if err == nil {
+		t.Fatal("run(-logo-clearing transparent) returned no error")
+	}
+
+	// The value typed and the values there are, so the fix is in the message
+	// rather than in the usage text below it.
+	for _, want := range []string{"transparent", "knockout", "ink"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("run(-logo-clearing transparent) error = %q, want it to "+
+				"name %q", err, want)
+		}
+	}
+
+	if len(stdout) != 0 {
+		t.Errorf("run(-logo-clearing transparent) wrote %d bytes to stdout, "+
+			"want none", len(stdout))
+	}
+}
+
+func TestClearingWithoutALogoIsAnError(t *testing.T) {
+	stdout, _, err := invoke(t, "-logo-clearing", "ink", brandedContent)
+
+	if err == nil {
+		t.Fatal("run(-logo-clearing ink) without a logo returned no error")
+	}
+	if !strings.Contains(err.Error(), "-logo") {
+		t.Errorf("run(-logo-clearing ink) error = %q, want it to name -logo",
+			err)
+	}
+	if len(stdout) != 0 {
+		t.Errorf("run(-logo-clearing ink) wrote %d bytes to stdout, want none",
+			len(stdout))
 	}
 }
