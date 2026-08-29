@@ -112,10 +112,29 @@ may cover.
 A caller-supplied image composited over the centre of the rendered image.
 
 **Knockout**:
-The region of the image cleared to background colour to seat the logo,
-including its surrounding margin. Larger than the logo itself, and it — not
-the logo's own extent — is what counts as damage against the correction
-capacity.
+The square of modules *charged* against the correction capacity to seat the
+logo: the logo plus its surrounding margin, snapped outwards to whole
+modules. It follows from the symbol's width, `LogoOptions.Scale` and
+`LogoOptions.Margin` alone — never from the logo image — which is what lets
+`MaxLogoScale` answer before a logo has been chosen. It is what counts as
+damage, whatever a render goes on to clear (ADR-0008).
+_Avoid_: cleared region (see Clearing)
+
+**Ink**:
+A module that any pixel of the logo covers with non-zero alpha. Any alpha
+above zero counts: a module the logo partly covers is read just as wrongly as
+one it covers entirely (ADR-0001). Measured on the *resampled* logo actually
+composited, so what is cleared and what is drawn cannot disagree.
+
+**Clearing**:
+The modules actually blanked to background colour before the logo is drawn —
+either the whole knockout or the ink dilated by `LogoOptions.Margin`,
+according to `LogoOptions.Clearing`. Always a subset of the knockout, so a
+symbol is never damaged by more than was charged for it (ADR-0008). Not to be
+read as the margin's own clear space: the margin is a width in modules, the
+clearing is a set of them.
+_Avoid_: knockout (which is the charged square, and does not move with the
+image)
 
 **Seat**:
 The pixels of the rendered image the logo itself is drawn into: a fraction
@@ -128,9 +147,12 @@ because only the knockout counts as damage — enlarging the seat within a
 knockout already paid for costs the correction capacity nothing.
 
 **Occlusion**:
-A module covered by the knockout, and therefore read wrongly by a decoder.
-Occlusion of a data region module is counted per codeword, never per module,
-and charged against the correction capacity. Occlusion of a function pattern
+A module covered by the knockout, and therefore assumed to be read wrongly by
+a decoder. Assumed, because it is charged from the knockout whichever
+clearing is asked for: a module the clearing leaves standing is charged all
+the same, which is the asymmetry ADR-0008 rests on. Occlusion of a data
+region module is counted per codeword, never per module, and charged against
+the correction capacity. Occlusion of a function pattern
 carries no such charge because no capacity can pay for it: a logo may occlude
 alignment patterns and no other function pattern (ADR-0002).
 
