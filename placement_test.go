@@ -11,7 +11,7 @@ import (
 	bitset "github.com/skip2/go-qrcode/bitset"
 )
 
-func TestDataModulePathStartsAtBottomRight(t *testing.T) {
+func TestPlacementPathStartsAtBottomRight(t *testing.T) {
 	v := getQRCodeVersion(Low, 1)
 	path := newPlacementPath(*v).modules
 
@@ -31,7 +31,7 @@ func TestDataModulePathStartsAtBottomRight(t *testing.T) {
 	}
 }
 
-func TestDataModulePathCoversDataRegionExactlyOnce(t *testing.T) {
+func TestPlacementPathCoversDataRegionExactlyOnce(t *testing.T) {
 	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
 		for _, level := range []RecoveryLevel{Low, Medium, High, Highest} {
 			v := getQRCodeVersion(level, versionNumber)
@@ -64,7 +64,36 @@ func TestDataModulePathCoversDataRegionExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestDataModulePathSkipsFunctionPatterns(t *testing.T) {
+// TestPlacementPathDependsOnVersionAlone pins the invariant the whole of
+// issue #12 rests on: one path serves every symbol of a version, so an encode
+// can build it once and hand it to all eight masks.
+//
+// The recovery level is the only thing that could plausibly move it — it is
+// part of qrCodeVersion, and the format info modules are function patterns —
+// but it sets those modules' values, never their positions.
+func TestPlacementPathDependsOnVersionAlone(t *testing.T) {
+	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
+		low := newPlacementPath(*getQRCodeVersion(Low, versionNumber))
+
+		for _, level := range []RecoveryLevel{Medium, High, Highest} {
+			other := newPlacementPath(*getQRCodeVersion(level, versionNumber))
+
+			if len(other.modules) != len(low.modules) {
+				t.Fatalf("v=%d level=%d: path length = %d, want %d as for Low",
+					versionNumber, level, len(other.modules), len(low.modules))
+			}
+
+			for i, p := range other.modules {
+				if p != low.modules[i] {
+					t.Fatalf("v=%d level=%d: path[%d] = %v, want %v as for Low",
+						versionNumber, level, i, p, low.modules[i])
+				}
+			}
+		}
+	}
+}
+
+func TestPlacementPathSkipsFunctionPatterns(t *testing.T) {
 	for versionNumber := 1; versionNumber <= 40; versionNumber++ {
 		v := getQRCodeVersion(Low, versionNumber)
 		fps := functionPatternSymbol(*v)
@@ -84,10 +113,10 @@ func TestDataModulePathSkipsFunctionPatterns(t *testing.T) {
 	}
 }
 
-// TestDataModulePathMatchesEncoderPlacement checks the contract the fit check
+// TestPlacementPathMatchesEncoderPlacement checks the contract the fit check
 // depends on: bit i of the encoded stream lands in the module at path[i], so
 // codeword n occupies path[8n:8n+8].
-func TestDataModulePathMatchesEncoderPlacement(t *testing.T) {
+func TestPlacementPathMatchesEncoderPlacement(t *testing.T) {
 	v := getQRCodeVersion(Low, 1)
 	path := newPlacementPath(*v)
 	numBits := numDataRegionModules(*v)
@@ -132,7 +161,8 @@ func TestDataModulePathMatchesEncoderPlacement(t *testing.T) {
 //
 // Bytes rather than allocation counts, because the placement path's weight is
 // in the size of what it allocates rather than in the number of objects: at
-// version 40 one path is 553 KB against an encode's 15,800 other allocations.
+// version 40 one path is a quarter of the bytes an encode allocates but only
+// 363 of its 18,700 allocations.
 func bytesAllocated(runs int, f func()) uint64 {
 	var before, after runtime.MemStats
 
@@ -194,9 +224,9 @@ func TestEncodeBuildsThePlacementPathOnce(t *testing.T) {
 	}
 }
 
-// BenchmarkDataModulePath measures the walk on its own. An encode runs it
+// BenchmarkPlacementPath measures the walk on its own. An encode runs it
 // once, whatever the mask, since the path depends only on the version.
-func BenchmarkDataModulePath(b *testing.B) {
+func BenchmarkPlacementPath(b *testing.B) {
 	v := getQRCodeVersion(Low, 40)
 
 	b.ReportAllocs()

@@ -7,7 +7,7 @@ eight wrong — so any check phrased as "the logo covers less than N% of the
 area" is measuring the wrong quantity, and the N is folklore. Instead we
 count *distinct damaged codewords per block* and require that count to stay
 within that block's correction capacity. `codewordLayout` supplies both
-mappings: the placement path that `dataModulePath` returns takes an occluded
+mappings: the placement path that `newPlacementPath` returns takes an occluded
 module to its codeword, and the interleave that `interleaveOrder` states — and
 `encodeBlocks` applies — takes that codeword to its block.
 
