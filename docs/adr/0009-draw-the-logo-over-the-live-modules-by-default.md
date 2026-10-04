@@ -36,14 +36,15 @@ largest accepted scale, with the right half transparent:
 Expectation was that `none` would be worst, since it abuts live modules on
 every side. It is not: it reads as well as `knockout`. The ink clearing's
 cost comes from clearing around each stroke, leaving a ragged blank boundary
-for a locator; with nothing cleared there is none. With an opaque logo all
-three read 156 to 157 of 158 at 512px (153 to 152 of 158 at 4px, which is
-noise-level: the failing combinations differ between styles and none is a
-pattern).
+for a locator; with nothing cleared there is none.
 
-Failures at this size are single combinations that differ between styles
-(none: v17/High; knockout: v7/Low, v19/High), so the one-in-158 differences
-are not evidence for one style over another.
+With an opaque logo the three styles are indistinguishable: 156 (none), 157
+(knockout) and 157 (ink) of 158 at 512px, and 153, 152 and 152 at 4px per
+module.
+
+The failures are single combinations that differ between styles (half
+transparent, 512px: none v17/High; knockout v7/Low and v19/High), so
+differences of one or two in 158 are not evidence for one style over another.
 
 ## Consequences
 
