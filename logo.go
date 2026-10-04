@@ -25,11 +25,22 @@ const (
 type ClearingStyle int
 
 const (
-	// ClearKnockout blanks the whole knockout square. It is the zero value,
-	// and so what a caller who says nothing gets: leaving a transparent
-	// logo's holes filled with background is a design decision, and changing
-	// it under someone already placing one would redesign their mark.
-	ClearKnockout ClearingStyle = iota
+	// ClearNone blanks nothing: the logo is drawn straight over the live
+	// modules, so a transparent region shows the symbol through it and a
+	// partly transparent edge blends with it. It is the zero value, and so
+	// what a caller who says nothing gets.
+	//
+	// The modules the logo covers are still charged and still lost to a
+	// decoder, so it is as safe for the budget as the other styles. It asks
+	// the most of a scanner, though: neither the margin nor an opaque logo's
+	// surroundings are cleared, so the mark abuts live modules everywhere
+	// (ADR-0009).
+	ClearNone ClearingStyle = iota
+
+	// ClearKnockout blanks the whole knockout square, holes and margin
+	// included. It is the safest for a scanner to locate, and what to ask for
+	// where the QR Code has to work more than it has to look a particular way.
+	ClearKnockout
 
 	// ClearInk blanks only the modules the logo's ink covers, dilated by
 	// Margin, so that the modules under a logo's transparent regions survive
@@ -66,7 +77,7 @@ type LogoOptions struct {
 
 	// Clearing says which modules of the knockout are blanked to the
 	// background colour before the logo is drawn over them. The zero value,
-	// ClearKnockout, blanks all of them.
+	// ClearNone, blanks none of them.
 	Clearing ClearingStyle
 }
 

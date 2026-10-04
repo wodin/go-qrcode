@@ -291,12 +291,11 @@ func (q *QRCode) Bitmap() [][]bool {
 // each module (QR Code "pixel") to be 5px in size.
 //
 // A logo attached by SetLogo is composited into the centre automatically. The
-// knockout it sits in — the logo plus its margin, snapped out to whole
-// modules — is cleared to BackgroundColor, and the logo is scaled to
-// LogoOptions.Scale of the symbol's width, keeping its aspect ratio, and
-// drawn over that. LogoOptions.Clearing can narrow what is cleared to the
-// modules the logo's ink actually covers, leaving the rest of the knockout
-// readable. An image carrying a logo is full colour; one carrying none is the
+// logo is scaled to LogoOptions.Scale of the symbol's width, keeping its
+// aspect ratio, and drawn over the symbol. LogoOptions.Clearing says what, if
+// anything, is first cleared to BackgroundColor: nothing by default, the whole
+// knockout (the logo plus its margin, snapped out to whole modules), or only
+// the modules the logo's ink covers. An image carrying a logo is full colour; one carrying none is the
 // two colour paletted image it has always been.
 func (q *QRCode) Image(size int) image.Image {
 	// Build QR code.

@@ -821,16 +821,15 @@ func TestSmallestVersionCarryingLogoLeavesAScaleThatIsNoFractionToSetLogo(t *tes
 	}
 }
 
-func TestClearingTheWholeKnockoutIsTheDefault(t *testing.T) {
-	// Not a bug fix: a caller already placing a transparent logo has
-	// background where the ink clearing would put live modules, and their
-	// mark was designed against that. They have to ask (ADR-0008).
-	if got := DefaultLogoOptions().Clearing; got != ClearKnockout {
-		t.Errorf("DefaultLogoOptions().Clearing = %v, want ClearKnockout", got)
+func TestClearingNothingIsTheDefault(t *testing.T) {
+	// The logo is drawn over the live modules unless the caller asks for a
+	// clearing (ADR-0009).
+	if got := DefaultLogoOptions().Clearing; got != ClearNone {
+		t.Errorf("DefaultLogoOptions().Clearing = %v, want ClearNone", got)
 	}
 
-	if got := (LogoOptions{}).Clearing; got != ClearKnockout {
-		t.Errorf("the zero LogoOptions clears %v, want ClearKnockout", got)
+	if got := (LogoOptions{}).Clearing; got != ClearNone {
+		t.Errorf("the zero LogoOptions clears %v, want ClearNone", got)
 	}
 }
 
@@ -880,6 +879,13 @@ func assertSameVerdict(t *testing.T, q *QRCode, logo image.Image,
 
 	options.Clearing = ClearInk
 	inked := q.SetLogo(logo, options)
+
+	options.Clearing = ClearNone
+	if bare := q.SetLogo(logo, options); (bare == nil) != (whole == nil) {
+		t.Fatalf("v%d level %d scale %v margin %d: clearing nothing %s and "+
+			"clearing the knockout %s", q.VersionNumber, q.Level, options.Scale,
+			options.Margin, accepted(bare), accepted(whole))
+	}
 
 	if (whole == nil) != (inked == nil) {
 		t.Fatalf("v%d level %d scale %v margin %d: clearing the knockout %s "+

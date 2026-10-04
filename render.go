@@ -108,11 +108,12 @@ func (q *QRCode) withLogo(rendered *image.Paletted,
 
 	// The resampled logo, rather than the caller's own image, so that what is
 	// cleared and what is drawn cannot disagree (ADR-0008).
-	if q.logoOptions.Clearing == ClearInk {
+	switch q.logoOptions.Clearing {
+	case ClearInk:
 		newInk(logo, seat, k, scale).
 			dilated(q.logoOptions.Margin).
 			fill(img, background, scale)
-	} else {
+	case ClearKnockout:
 		draw.Draw(img, knockedOut, background, image.Point{}, draw.Src)
 	}
 

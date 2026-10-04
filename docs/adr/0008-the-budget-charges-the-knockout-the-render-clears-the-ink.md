@@ -1,7 +1,7 @@
 # The budget charges the knockout; the render clears the ink
 
 `LogoOptions.Clearing` chooses between blanking the whole knockout square
-(`ClearKnockout`, the default) and blanking only the modules the logo's ink
+(`ClearKnockout`) and blanking only the modules the logo's ink
 covers, dilated by the margin (`ClearInk`). Whichever is chosen, the fit
 charges the whole square.
 
@@ -74,7 +74,8 @@ v10/0.26 is where contiguous negative space comes back.
 
 ## Consequences
 
-**The default does not change.** `ClearKnockout` is the zero value, so a
+**The default did not change here.** (ADR-0009 later changed it to
+`ClearNone`.) `ClearKnockout` was the zero value, so a
 caller who says nothing renders exactly what they rendered before. This is a
 visible change to anyone already placing a transparent logo — negative space
 where there was solid background — and that is a redesign of their mark, not

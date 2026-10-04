@@ -51,16 +51,16 @@ A logo may be placed in the centre of a QR Code. The logo, and the clear space k
 
   A logo the QR Code could not survive is refused with a `*qrcode.LogoTooLargeError` or a `*qrcode.LogoOccludesFunctionPatternError`, each carrying the largest scale that would have been accepted. The content above is long enough to make a version 5 symbol, which carries a scale 0.15 logo; the shorter `https://example.org` makes a version 3 symbol, which does not.
 
-- **Keep the modules under a transparent logo's holes:**
+- **Choose what the logo clears** (`ClearNone` by default, `ClearInk`, `ClearKnockout`):
 
         options := qrcode.DefaultLogoOptions()
-        options.Clearing = qrcode.ClearInk
+        options.Clearing = qrcode.ClearKnockout // or ClearInk
 
         err := q.SetLogo(logo, options)
 
-  By default the whole knockout square is cleared to the background colour, holes and all. `ClearInk` clears only the modules the logo's ink covers, plus the margin around each stroke, so a decoder still reads the rest. It does not make the logo bigger — the whole square is still charged against the error recovery information, so `MaxLogoScale` reports what it always did and the symbol simply decodes with more real data than it was charged for. Any alpha above zero counts as ink, so this buys nothing for an opaque mark and little for a compact one: a codeword threads eight modules through the region and any one of them damages it, so only a mark with space between its strokes leaves whole codewords untouched.
+  By default nothing is cleared: the logo is drawn over the live modules, so a transparent region shows them through and a soft edge blends with them. `ClearKnockout` clears the whole knockout square to the background colour, holes and margin included, and is the easiest for a scanner to locate. `ClearInk` clears only the modules the logo's ink covers, plus the margin around each stroke, so a decoder still reads the rest. It does not make the logo bigger — the whole square is still charged against the error recovery information, so `MaxLogoScale` reports what it always did and the symbol simply decodes with more real data than it was charged for. Any alpha above zero counts as ink, so this buys nothing for an opaque mark and little for a compact one: a codeword threads eight modules through the region and any one of them damages it, so only a mark with space between its strokes leaves whole codewords untouched.
 
-  **Less damage is not the same as a symbol that reads more easily.** A mark abutting live modules is harder for a scanner to *find* than the same mark in a cleared square: measured with zbarimg at the largest accepted scale, 148 of the 158 version and recovery level combinations read back with the ink cleared against 156 with the square cleared, at every pixel pitch tried and at every scale. Reach for `ClearInk` when the mark's negative space is worth that, and leave the default alone when the QR Code has to work more than it has to look a particular way.
+  **Less damage is not the same as a symbol that reads more easily.** A mark abutting live modules is harder for a scanner to *find* than the same mark in a cleared square: measured with zbarimg at the largest accepted scale, 148 of the 158 version and recovery level combinations read back with the ink cleared against 156 with the square cleared, at every pixel pitch tried and at every scale. Reach for `ClearInk` when the mark's negative space is worth that, and reach for `ClearKnockout` when the QR Code has to work more than it has to look a particular way. `ClearNone` asks the most of a scanner of the three (ADR-0009).
 
 - **Ask which QR Code to build for the logo you want:**
 

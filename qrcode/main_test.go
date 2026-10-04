@@ -944,16 +944,28 @@ func TestLogoClearingFlagClearsOnlyTheInk(t *testing.T) {
 
 	// Naming the default is not the same as saying nothing, but it must
 	// produce the same image.
-	spelled, _, err := invoke(t, "-L", logo, "-logo-clearing", "knockout",
+	spelled, _, err := invoke(t, "-L", logo, "-logo-clearing", "none",
+		brandedContent)
+	if err != nil {
+		t.Fatalf("run(-L %s -logo-clearing none) error = %v, want nil",
+			logo, err)
+	}
+
+	if !bytes.Equal(byDefault, spelled) {
+		t.Error("-logo-clearing none differs from the default, which is " +
+			"the same clearing")
+	}
+
+	knockedOut, _, err := invoke(t, "-L", logo, "-logo-clearing", "knockout",
 		brandedContent)
 	if err != nil {
 		t.Fatalf("run(-L %s -logo-clearing knockout) error = %v, want nil",
 			logo, err)
 	}
 
-	if !bytes.Equal(byDefault, spelled) {
-		t.Error("-logo-clearing knockout differs from the default, which is " +
-			"the same clearing")
+	if bytes.Equal(byDefault, knockedOut) {
+		t.Error("-logo-clearing knockout produced the same image as the " +
+			"default, so the flag did not reach the logo")
 	}
 }
 

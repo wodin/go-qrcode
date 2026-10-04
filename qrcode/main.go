@@ -88,9 +88,10 @@ Usage:
 
        qrcode -L logo.png -logo-scale 0.2 -grow-symbol "https://example.org" > out.png
 
-  5. Keep the modules under a transparent logo's holes. -logo-clearing ink
-     blanks only the modules the logo covers, and the margin around each
-     stroke, instead of the whole square:
+  5. Choose what the logo clears. By default nothing: it is drawn over the
+     live modules. -logo-clearing knockout blanks the whole square;
+     -logo-clearing ink blanks only the modules the logo covers, and the
+     margin around each stroke:
 
        qrcode -L mark.png -logo-clearing ink "https://example.org" > out.png
 
@@ -137,14 +138,14 @@ var logoMargin = qrcode.DefaultLogoOptions().Margin
 // clearingStyles are the values -logo-clearing takes, each named for what it
 // blanks rather than for the image it blanks it in.
 var clearingStyles = map[string]qrcode.ClearingStyle{
+	"none":     qrcode.ClearNone,
 	"knockout": qrcode.ClearKnockout,
 	"ink":      qrcode.ClearInk,
 }
 
-// defaultClearing is what -logo-clearing means when it is not given: the
-// whole square, which is the library's default and what every existing
-// command line already produces.
-const defaultClearing = "knockout"
+// defaultClearing is what -logo-clearing means when it is not given: nothing
+// cleared, which is the library's default.
+const defaultClearing = "none"
 
 // attachLogo reads the image in the file named by path and places it in the
 // centre of q, scale of the symbol's width wide, blanking the modules
@@ -333,7 +334,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	growSymbol := flags.Bool("grow-symbol", false,
 		"encode at the smallest version whose symbol carries -logo-scale, instead of the version the content's length chose")
 	logoClearing := flags.String("logo-clearing", defaultClearing,
-		"which modules the logo blanks to the background: knockout (the whole square) or ink (only what the logo covers, and the margin around each stroke)")
+		"which modules the logo blanks to the background: none (draw the logo over the live modules), knockout (the whole square) or ink (only what the logo covers, and the margin around each stroke)")
 	flags.Usage = func() { printUsage(flags) }
 
 	if err := flags.Parse(args); err != nil {
@@ -358,7 +359,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	clearing, known := clearingStyles[*logoClearing]
 	if !known {
 		return misuse(flags, fmt.Sprintf("-logo-clearing is %q (expected "+
-			"knockout or ink)", *logoClearing))
+			"none, knockout or ink)", *logoClearing))
 	}
 
 	if *growSymbol && !isSet(flags, "logo-scale") {

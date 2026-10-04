@@ -179,6 +179,7 @@ func TestLogoIsCentredInsideARingOfBackground(t *testing.T) {
 
 	red := color.RGBA{R: 255, A: 255}
 	options := DefaultLogoOptions()
+	options.Clearing = ClearKnockout
 	q := qrCodeWithLogo(t, 10, Highest, solidLogo(red, 64, 64), options)
 
 	img := q.Image(-pixelsPerModule)
@@ -314,6 +315,7 @@ func TestInvertedColoursClearTheKnockoutToTheInvertedBackground(t *testing.T) {
 
 	red := color.RGBA{R: 255, A: 255}
 	options := DefaultLogoOptions()
+	options.Clearing = ClearKnockout
 
 	q := qrCodeWithLogo(t, 10, Highest, solidLogo(red, 64, 64), options)
 	q.BackgroundColor = color.Black
@@ -376,8 +378,11 @@ func TestKnockoutReplacesTheModulesBeneathIt(t *testing.T) {
 
 	// A wholly transparent logo, so that the centre shows the cleared
 	// knockout and nothing else.
+	options := DefaultLogoOptions()
+	options.Clearing = ClearKnockout
+
 	q := qrCodeWithLogo(t, 10, Highest, image.NewNRGBA(image.Rect(0, 0, 64, 64)),
-		DefaultLogoOptions())
+		options)
 	q.BackgroundColor = translucent
 
 	img := q.Image(-pixelsPerModule)
@@ -801,6 +806,61 @@ func TestAnOpaqueLogoRendersTheSameWhicheverClearingIsAsked(t *testing.T) {
 				t.Errorf("v%d margin=%d: clearing the ink of an opaque logo "+
 					"changed %d pixels, want an identical image",
 					versionNumber, margin, differing)
+			}
+		}
+	}
+}
+
+func TestClearNoneBlanksNothing(t *testing.T) {
+	const (
+		pixelsPerModule = 8
+		versionNumber   = 10
+	)
+
+	// A wholly transparent logo draws nothing, so with nothing cleared the
+	// image is the bare symbol, pixel for pixel.
+	options := DefaultLogoOptions()
+	options.Clearing = ClearNone
+
+	q := qrCodeWithLogo(t, versionNumber, Highest,
+		image.NewNRGBA(image.Rect(0, 0, 64, 64)), options)
+	plain := forcedVersion(t, versionNumber, Highest).Image(-pixelsPerModule)
+	img := q.Image(-pixelsPerModule)
+
+	if changed := differingPixels(img, plain, img.Bounds()); changed != 0 {
+		t.Errorf("a transparent logo with nothing cleared changed %d pixels, "+
+			"want none", changed)
+	}
+}
+
+func TestClearNoneLeavesTheModulesAroundAnOpaqueLogo(t *testing.T) {
+	const (
+		pixelsPerModule = 8
+		versionNumber   = 10
+	)
+
+	red := color.RGBA{R: 255, A: 255}
+	options := DefaultLogoOptions()
+	options.Clearing = ClearNone
+
+	q := qrCodeWithLogo(t, versionNumber, Highest, solidLogo(red, 64, 64),
+		options)
+	plain := forcedVersion(t, versionNumber, Highest).Image(-pixelsPerModule)
+	img := q.Image(-pixelsPerModule)
+
+	// Outside the logo itself nothing differs from the bare symbol: the
+	// margin is not cleared either.
+	logo := extentOf(t, img, red)
+
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			if (image.Point{X: x, Y: y}).In(logo) {
+				continue
+			}
+
+			if rgbaAt(img, x, y) != rgbaAt(plain, x, y) {
+				t.Fatalf("pixel (%d,%d) outside the logo differs from the "+
+					"bare symbol", x, y)
 			}
 		}
 	}
