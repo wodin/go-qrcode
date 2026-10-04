@@ -60,8 +60,8 @@ wrote logo.png: 786x624, 38% transparent, 60% opaque, 2% soft edge
 ```
 
 That report is the evidence that the transparency is real: a logo with a
-background has a substantial transparent share, and one reported as 0%
-transparent is still a rectangle. (The opaque share includes the outline.)
+background has a substantial transparent share. 0% transparent means a
+rectangle: fine only if the mark is one. (The opaque share includes the outline.)
 Looking at `logo.png` itself proves nothing, since viewers show transparency
 as white or as a chequerboard. To see it, add `--preview preview.png`, which
 also writes the logo laid over a strong pink.

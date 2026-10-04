@@ -74,10 +74,11 @@ Decode the finished PNG and compare it with the content, character for
 character. Use whichever decoder is at hand:
 
 ```
-zbarimg -q --raw qr.png
+zbarimg -q --raw -Sbinary qr.png
 python3 -c "import cv2,sys; print(cv2.QRCodeDetector().detectAndDecode(cv2.imread(sys.argv[1]))[0])" qr.png
 ```
 
+Without `-Sbinary` zbar misreads non-ASCII text such as "Café" as Shift JIS.
 OpenCV's detector is weaker than a phone's, so a failure there is a prompt to
 look closer, not proof. If a logo code does not decode, see LOGO.md's
 fallbacks. If no decoder is available, say that the code has not been
