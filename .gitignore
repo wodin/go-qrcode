@@ -3,3 +3,6 @@
 *.directory
 qrcode/qrcode
 qrcode.exe
+dist/
+skills/*/bin/
+__pycache__/
