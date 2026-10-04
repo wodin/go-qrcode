@@ -58,9 +58,9 @@ A logo may be placed in the centre of a QR Code. The logo, and the clear space k
 
         err := q.SetLogo(logo, options)
 
-  By default nothing is cleared: the logo is drawn over the live modules, so a transparent region shows them through and a soft edge blends with them. `ClearKnockout` clears the whole knockout square to the background colour, holes and margin included, and is the easiest for a scanner to locate. `ClearInk` clears only the modules the logo's ink covers, plus the margin around each stroke, so a decoder still reads the rest. It does not make the logo bigger — the whole square is still charged against the error recovery information, so `MaxLogoScale` reports what it always did and the symbol simply decodes with more real data than it was charged for. Any alpha above zero counts as ink, so this buys nothing for an opaque mark and little for a compact one: a codeword threads eight modules through the region and any one of them damages it, so only a mark with space between its strokes leaves whole codewords untouched.
+  By default nothing is cleared: the logo is drawn over the live modules, so a transparent region shows them through and a soft edge blends with them. `ClearKnockout` clears the whole knockout square to the background colour, holes and margin included. `ClearInk` clears only the modules the logo's ink covers, plus the margin around each stroke, so a decoder still reads the rest. It does not make the logo bigger — the whole square is still charged against the error recovery information, so `MaxLogoScale` reports what it always did and the symbol simply decodes with more real data than it was charged for. Any alpha above zero counts as ink, so this buys nothing for an opaque mark and little for a compact one: a codeword threads eight modules through the region and any one of them damages it, so only a mark with space between its strokes leaves whole codewords untouched.
 
-  **Less damage is not the same as a symbol that reads more easily.** A mark abutting live modules is harder for a scanner to *find* than the same mark in a cleared square: measured with zbarimg at the largest accepted scale, 148 of the 158 version and recovery level combinations read back with the ink cleared against 156 with the square cleared, at every pixel pitch tried and at every scale. Reach for `ClearInk` when the mark's negative space is worth that, and reach for `ClearKnockout` when the QR Code has to work more than it has to look a particular way. `ClearNone` asks the most of a scanner of the three (ADR-0009).
+  **Less damage is not the same as a symbol that reads more easily.** Clearing around each stroke leaves a ragged blank boundary that is harder for a scanner to *find* than a cleared square: measured with zbarimg at the largest accepted scale, 148 of the 158 version and recovery level combinations read back with the ink cleared against 156 with the square cleared, at every pixel pitch tried and at every scale (ADR-0008). Clearing nothing leaves no such boundary, and `ClearNone` reads as well as `ClearKnockout`: 157 of 158 against 156 (ADR-0009). So choosing between those two is a matter of looks; reach for `ClearInk` only when the mark's negative space is worth its cost.
 
 - **Ask which QR Code to build for the logo you want:**
 
@@ -108,6 +108,8 @@ Flags:
   -i	invert black and white
   -logo string
     	logo image file (PNG, JPEG or GIF) to place in the centre, empty for none
+  -logo-clearing string
+    	which modules the logo blanks to the background: none (draw the logo over the live modules), knockout (the whole square) or ink (only what the logo covers, and the margin around each stroke) (default "none")
   -logo-scale float
     	logo width as a fraction of the QR Code's width, excluding the border (default: the largest that fits)
   -o string
@@ -145,6 +147,21 @@ Usage:
      the scale asked for, and reports the version on stderr:
 
        qrcode -L logo.png -logo-scale 0.2 -grow-symbol "https://example.org" > out.png
+
+  5. Choose what the logo clears. By default nothing: it is drawn over the
+     live modules. -logo-clearing knockout blanks the whole square;
+     -logo-clearing ink blanks only the modules the logo covers, and the
+     margin around each stroke:
+
+       qrcode -L mark.png -logo-clearing ink "https://example.org" > out.png
+
+     The logo does not get bigger. The whole square is still charged
+     against the error correction, so the size asked for is the size drawn
+     and the symbol simply decodes with more real data than it was charged
+     for. It is not free either: the blank boundary it leaves around each
+     stroke is harder for a scanner to find than a cleared square, so ask
+     for it when the negative space is worth that. Clearing nothing leaves
+     no such boundary, and reads as well as knockout.
 
 ```
 ## Maximum capacity

@@ -98,9 +98,10 @@ Usage:
      The logo does not get bigger. The whole square is still charged
      against the error correction, so the size asked for is the size drawn
      and the symbol simply decodes with more real data than it was charged
-     for. It is not free either: a mark abutting live modules is harder for
-     a scanner to find than one in a cleared square, so ask for it when the
-     negative space is worth that.
+     for. It is not free either: the blank boundary it leaves around each
+     stroke is harder for a scanner to find than a cleared square, so ask
+     for it when the negative space is worth that. Clearing nothing leaves
+     no such boundary, and reads as well as knockout.
 
 `)
 }
